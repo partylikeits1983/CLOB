@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use miden_client::{
     ClientError, Felt, Word,
+    account::AccountId,
     asset::FungibleAsset,
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
@@ -425,14 +426,18 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
     let faucet_a = faucets[0].clone();
     let faucet_b = faucets[1].clone();
 
+    println!("faucet: {:?}", faucet_a.id().to_hex());
+    println!("faucet: {:?}", faucet_b.id().to_hex());
+    println!("trader_1: {:?}", trader_1.id().to_hex());
+    println!("trader_2: {:?}", trader_2.id().to_hex());
     // ────────────────────────────────────────────────────────────
     // 2.  Trader-1: “sell 50 A for 50 B” (maker)
     // ────────────────────────────────────────────────────────────
     let swap_note_1 = create_order(
         &mut client,
         trader_1.id(),
-        FungibleAsset::new(faucet_a.id(), 50).unwrap().into(), // offered
-        FungibleAsset::new(faucet_b.id(), 50).unwrap().into(), // wanted
+        FungibleAsset::new(faucet_a.id(), 100).unwrap().into(), // offered
+        FungibleAsset::new(faucet_b.id(), 100).unwrap().into(), // wanted
     )
     .await
     .unwrap();
@@ -443,8 +448,8 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
     let swap_note_2 = create_order(
         &mut client,
         trader_2.id(),
-        FungibleAsset::new(faucet_b.id(), 25).unwrap().into(), // offered
-        FungibleAsset::new(faucet_a.id(), 25).unwrap().into(), // wanted
+        FungibleAsset::new(faucet_b.id(), 50).unwrap().into(), // offered
+        FungibleAsset::new(faucet_a.id(), 50).unwrap().into(), // wanted
     )
     .await
     .unwrap();
@@ -464,6 +469,13 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
 
     println!("\n[matcher] {:?}", swap_data);
 
+    println!("swap note args 1: {:?}", swap_data.note1_args);
+    println!("swap note args 2: {:?}", swap_data.note2_args);
+
+    /*     println!("p2id_note 1 {:?}", swap_data.p2id_from_1_to_2.id());
+    println!("p2id_note 2 {:?}", swap_data.p2id_from_2_to_1.id());
+    println!("swapp note {:?}", swap_data.leftover_swapp_note.clone().unwrap().id()); */
+
     // ────────────────────────────────────────────────────────────
     // 6.  Build the single consume-transaction
     // ────────────────────────────────────────────────────────────
@@ -475,6 +487,7 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
     if let Some(ref note) = swap_data.leftover_swapp_note {
         expected_outputs.push(note.clone());
     }
+    expected_outputs.sort_by_key(|n| n.commitment());
 
     let consume_req = TransactionRequestBuilder::new()
         .with_authenticated_input_notes([
@@ -1155,4 +1168,177 @@ async fn test_compute_partial_swapp() -> Result<(), ClientError> {
     assert_eq!(new_amount_b, 2500);
 
     Ok(())
+}
+
+#[test]
+fn test_try_match_swapp_notes_arithmetic() {
+    // ────────────────────────────────────────────────────────────
+    // 1.  Fixture: two opposite SWAPP orders
+    // ────────────────────────────────────────────────────────────
+
+    let maker_id = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
+    let taker_id = AccountId::from_hex("0xbbb871c76d7a27100000cc8533e494").unwrap();
+    let matcher = AccountId::from_hex("0xbbb871c76d7a27100000cc8533e494").unwrap();
+
+    let faucet_a = AccountId::from_hex("0xe125e96a9af535200000a5dc5d4500").unwrap();
+    let faucet_b = AccountId::from_hex("0x34d1b6993361072000005737e7ae4b").unwrap();
+
+    // 100 A for 100 B
+    let maker_note = create_partial_swap_note(
+        maker_id,
+        maker_id,                                          // last counter-party (self)
+        FungibleAsset::new(faucet_a, 100).unwrap().into(), // offered
+        FungibleAsset::new(faucet_b, 100).unwrap().into(), // wanted
+        Word::default(),
+        0,
+    )
+    .unwrap();
+
+    // taker: 50 B  → 50 A
+    let taker_note = create_partial_swap_note(
+        taker_id,
+        taker_id,
+        FungibleAsset::new(faucet_b, 50).unwrap().into(), // offered
+        FungibleAsset::new(faucet_a, 50).unwrap().into(), // wanted
+        Word::default(),
+        0,
+    )
+    .unwrap();
+
+    // ────────────────────────────────────────────────────────────
+    // 2.  Run the matcher
+    // ────────────────────────────────────────────────────────────
+    let swap = try_match_swapp_notes(&maker_note, &taker_note, matcher)
+        .unwrap()
+        .expect("orders should cross");
+
+    // ────────────────────────────────────────────────────────────
+    // 3.  Assertions
+    // ────────────────────────────────────────────────────────────
+    // 3-a. P2ID amounts
+    let p2id_a_out = swap
+        .p2id_from_1_to_2
+        .assets()
+        .iter()
+        .next()
+        .unwrap()
+        .unwrap_fungible();
+
+    assert_eq!(p2id_a_out.amount(), 50);
+    assert_eq!(p2id_a_out.faucet_id(), faucet_a);
+
+    let p2id_b_out = swap
+        .p2id_from_2_to_1
+        .assets()
+        .iter()
+        .next()
+        .unwrap()
+        .unwrap_fungible();
+    assert_eq!(p2id_b_out.amount(), 50);
+    assert_eq!(p2id_b_out.faucet_id(), faucet_b);
+
+    // 3-b. Left-over maker SWAPP note (should be 25 A → 25 B)
+    let leftover = swap
+        .leftover_swapp_note
+        .as_ref()
+        .expect("maker not 100 % filled");
+    let (left_off, left_req) = decompose_swapp_note(leftover).unwrap();
+    assert_eq!(left_off.amount(), 50);
+    assert_eq!(left_off.faucet_id(), faucet_a);
+    assert_eq!(left_req.amount(), 50);
+    assert_eq!(left_req.faucet_id(), faucet_b);
+
+    // 3-c. Note-args semantics
+    assert_eq!(swap.note1_args[3].as_int(), 50); // maker receives 25 B
+    assert_eq!(swap.note2_args[3].as_int(), 50); // taker receives 25 A
+}
+
+#[test]
+fn test_try_match_swapp_notes_arithmetic_case2() {
+    // ────────────────────────────────────────────────────────────
+    // 1.  Fixture
+    //      maker : 150 A  →  90 B   (price = 0.6 B per A)
+    //      taker :  60 B  →  50 A   (price = 1.2 B per A)
+    //
+    //      ⇒ prices cross (1.2 ≥ 0.6)
+    //      ⇒ taker can pay at most 60 B, maker asks 90 B,
+    //         taker must not exceed (want₂·want₁ / offer₁) = (50·90)/150 = 30 B
+    //      ⇒ fill_quote  = 30 B
+    //         fill_base   = ⌊150·30 / 90⌋ = 50 A
+    //         leftovers   = 100 A  /  60 B
+    // ────────────────────────────────────────────────────────────
+    let maker_id = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
+    let taker_id = AccountId::from_hex("0xbbb871c76d7a27100000cc8533e494").unwrap();
+    let matcher = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
+
+    let faucet_a = AccountId::from_hex("0xe125e96a9af535200000a5dc5d4500").unwrap();
+    let faucet_b = AccountId::from_hex("0x34d1b6993361072000005737e7ae4b").unwrap();
+
+    // maker: 150 A  → 90 B
+    let maker_note = create_partial_swap_note(
+        maker_id,
+        maker_id,
+        FungibleAsset::new(faucet_a, 150).unwrap().into(), // offered
+        FungibleAsset::new(faucet_b, 90).unwrap().into(),  // wanted
+        Word::default(),
+        0,
+    )
+    .unwrap();
+
+    // taker: 60 B  → 50 A
+    let taker_note = create_partial_swap_note(
+        taker_id,
+        taker_id,
+        FungibleAsset::new(faucet_b, 60).unwrap().into(), // offered
+        FungibleAsset::new(faucet_a, 50).unwrap().into(), // wanted
+        Word::default(),
+        0,
+    )
+    .unwrap();
+
+    // ────────────────────────────────────────────────────────────
+    // 2. Run the matcher
+    // ────────────────────────────────────────────────────────────
+    let swap = try_match_swapp_notes(&maker_note, &taker_note, matcher)
+        .unwrap()
+        .expect("orders should cross");
+
+    // ────────────────────────────────────────────────────────────
+    // 3. Assertions
+    // ────────────────────────────────────────────────────────────
+    // 3-a.  P2ID payloads
+    let p2id_a_out = swap
+        .p2id_from_1_to_2
+        .assets()
+        .iter()
+        .next()
+        .unwrap()
+        .unwrap_fungible();
+    assert_eq!(p2id_a_out.amount(), 50); // 50 A to taker
+    assert_eq!(p2id_a_out.faucet_id(), faucet_a);
+
+    let p2id_b_out = swap
+        .p2id_from_2_to_1
+        .assets()
+        .iter()
+        .next()
+        .unwrap()
+        .unwrap_fungible();
+    assert_eq!(p2id_b_out.amount(), 30); // 30 B to maker
+    assert_eq!(p2id_b_out.faucet_id(), faucet_b);
+
+    // 3-b.  Left-over maker order: 100 A → 60 B
+    let leftover = swap
+        .leftover_swapp_note
+        .as_ref()
+        .expect("maker not 100 % filled");
+    let (left_off, left_req) = decompose_swapp_note(leftover).unwrap();
+    assert_eq!(left_off.amount(), 100);
+    assert_eq!(left_off.faucet_id(), faucet_a);
+    assert_eq!(left_req.amount(), 60);
+    assert_eq!(left_req.faucet_id(), faucet_b);
+
+    // 3-c.  Note-arg limb-3 semantics
+    assert_eq!(swap.note1_args[3].as_int(), 30); // maker receives 30 B
+    assert_eq!(swap.note2_args[3].as_int(), 50); // taker receives 50 A
 }

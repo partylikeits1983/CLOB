@@ -1056,69 +1056,78 @@ impl fmt::Debug for MatchedSwap {
             .finish()
     }
 }
-/// Try to cross two SWAPP orders.
-///
-/// * `note1` is treated as the **maker** (its limit-price rules the trade)
-/// * `note2` is treated as the **taker**
-/// * `matcher` is the account that actually posts the two P2ID notes
-///
-/// `Ok(None)`  → the pair cannot cross.  
-/// `Ok(Some(..))` → the pair crosses; all returned notes **must** be the
-/// *only* `expected_output_notes` of the consume-transaction.
+
 pub fn try_match_swapp_notes(
-    note1: &Note,
-    note2: &Note,
+    note1_in: &Note,
+    note2_in: &Note,
     matcher: AccountId,
 ) -> Result<Option<MatchedSwap>, Error> {
-    // ────────────────────────────────────────────────────────────
-    // 1. Decode the two orders                                      (A,B) ↔ (B,A)
-    // ────────────────────────────────────────────────────────────
-    let (offer1, want1) = decompose_swapp_note(note1)?;
-    let (offer2, want2) = decompose_swapp_note(note2)?;
+    //-----------------------------------------------------------------------
+    // 0. Decode both SWAPP notes
+    //-----------------------------------------------------------------------
+    let (offer1_raw, want1_raw) = decompose_swapp_note(note1_in)?;
+    let (offer2_raw, want2_raw) = decompose_swapp_note(note2_in)?;
 
-    // opposite assets?
-    if offer1.faucet_id() != want2.faucet_id() || want1.faucet_id() != offer2.faucet_id() {
+    // They must be the inverse pair (A,B) ↔ (B,A)
+    if offer1_raw.faucet_id() != want2_raw.faucet_id()
+        || want1_raw.faucet_id() != offer2_raw.faucet_id()
+    {
         return Ok(None);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // 2. Limit-price crossing test         taker_price ≥ maker_price ?
-    // ────────────────────────────────────────────────────────────
+    //-----------------------------------------------------------------------
+    // 1. Make sure `note1` is the *larger* order (cannot be completely filled
+    //    by the other).  A simple heuristic works well in practice:
+    //        if maker.stock < taker.demand  -> swap.
+    //-----------------------------------------------------------------------
+    let (note1, note2, offer1, want1, offer2, want2) = if offer1_raw.amount() < want2_raw.amount() {
+        // swap so that `note1` always has “more liquidity”
+        (
+            note2_in, note1_in, offer2_raw, want2_raw, offer1_raw, want1_raw,
+        )
+    } else {
+        (
+            note1_in, note2_in, offer1_raw, want1_raw, offer2_raw, want2_raw,
+        )
+    };
+
+    //-----------------------------------------------------------------------
+    // 2. Limit-price check (taker_price ≥ maker_price?)
+    //-----------------------------------------------------------------------
     let maker_num = want1.amount(); // quote
     let maker_den = offer1.amount(); // base
     let taker_num = offer2.amount(); // quote
     let taker_den = want2.amount(); // base
 
-    let lhs = (taker_num as u128) * (maker_den as u128);
-    let rhs = (maker_num as u128) * (taker_den as u128);
-    if lhs < rhs {
-        return Ok(None); // prices do NOT cross
+    if (taker_num as u128) * (maker_den as u128) < (maker_num as u128) * (taker_den as u128) {
+        return Ok(None); // prices do not cross
     }
 
-    // ────────────────────────────────────────────────────────────
-    // 3. How much can actually be traded?
-    //      * maker cannot sell more than he offers;
-    //      * taker cannot buy  more than she wants;
-    //      * taker must have enough quote to pay maker’s price.
-    // ────────────────────────────────────────────────────────────
-    let max_by_offer = offer1.amount(); // maker stock
-    let max_by_demand = want2.amount(); // taker demand
-    let max_by_quote = ((offer2.amount() as u128) * maker_den as u128 / maker_num as u128) as u64; // quote budget ⇢ base
-
-    let fill_base = max_by_offer.min(max_by_demand).min(max_by_quote);
-    if fill_base == 0 {
+    //-----------------------------------------------------------------------
+    // 3. Decide **only** how many quote tokens the taker will pay.
+    //    Everything else comes from `compute_partial_swapp`.
+    //-----------------------------------------------------------------------
+    let max_by_supply = offer2.amount(); // what taker *has*
+    let max_by_maker = want1.amount(); // what maker *asks*
+    let max_by_demand =
+        (want2.amount() as u128 * want1.amount() as u128 / offer1.amount() as u128) as u64; // taker must not
+    // receive > want2
+    let fill_quote = max_by_supply.min(max_by_maker).min(max_by_demand);
+    if fill_quote == 0 {
         return Ok(None);
     }
 
-    // Quote to pay – **ceil**(fill_base × maker_price)
-    let fill_quote = (((fill_base as u128) * maker_num as u128 + maker_den as u128 - 1)
-        / maker_den as u128) as u64;
+    // Single source of truth for the rest
+    let (fill_base, leftover_base, leftover_quote) =
+        compute_partial_swapp(offer1.amount(), want1.amount(), fill_quote);
 
-    debug_assert!(fill_quote > 0 && fill_quote <= offer2.amount());
+    debug_assert!(fill_base > 0);
+    debug_assert!(leftover_base + fill_base == offer1.amount());
+    debug_assert!(leftover_quote + fill_quote == want1.amount());
 
-    // ────────────────────────────────────────────────────────────
-    // 4. Build the two P2ID notes (matcher ✕ users)
-    // ────────────────────────────────────────────────────────────
+    //-----------------------------------------------------------------------
+    // 4. Build the two P2ID notes (matcher ↔ users)
+    //-----------------------------------------------------------------------
     let maker_id = creator_of(note1);
     let taker_id = creator_of(note2);
 
@@ -1129,6 +1138,7 @@ pub fn try_match_swapp_notes(
         .unwrap()
         .into();
 
+    // serial-numbers (swap-count sits in limb-8 of the inputs)
     let note1_swap_cnt = note1.inputs().values()[8].as_int();
     let note2_swap_cnt = note2.inputs().values()[8].as_int();
 
@@ -1136,52 +1146,45 @@ pub fn try_match_swapp_notes(
     let p2id_2_sn = get_p2id_serial_num(note2.serial_num(), note2_swap_cnt + 1);
 
     let p2id_from_1_to_2 = create_p2id_note(
-        matcher,          // creator = matcher
-        taker_id,         // receiver
-        vec![asset_base], // maker delivers base asset
+        matcher,
+        taker_id,
+        vec![asset_base],
         NoteType::Public,
         Felt::new(0),
         p2id_1_sn,
     )
     .unwrap();
-
     let p2id_from_2_to_1 = create_p2id_note(
         matcher,
         maker_id,
-        vec![asset_quote], // taker pays quote asset
+        vec![asset_quote],
         NoteType::Public,
         Felt::new(0),
         p2id_2_sn,
     )
     .unwrap();
 
-    // ────────────────────────────────────────────────────────────
-    // 4½. Note-arguments needed for partial-consume of each SWAPP note
-    //      (last limb = amount of the requested asset supplied)
-    // ────────────────────────────────────────────────────────────
+    //-----------------------------------------------------------------------
+    // 5. Note-arguments (match your new semantics)
+    //-----------------------------------------------------------------------
     let note1_args = [
         Felt::new(0),
         Felt::new(0),
         Felt::new(0),
-        Felt::new(fill_quote), // maker receives `fill_quote` of quote asset
+        Felt::new(fill_quote),
     ];
-
     let note2_args = [
         Felt::new(0),
         Felt::new(0),
         Felt::new(0),
-        Felt::new(fill_base), // taker receives `fill_base` of base asset
+        Felt::new(fill_base),
     ];
 
-    // ────────────────────────────────────────────────────────────
-    // 5. Left-over part of maker’s order (if any)
-    // ────────────────────────────────────────────────────────────
-    let leftover_base = offer1.amount() - fill_base;
-    let leftover_quote = want1.amount() - fill_quote;
-
+    //-----------------------------------------------------------------------
+    // 6. Possible leftover part of the *maker* (note 1)
+    //-----------------------------------------------------------------------
     let leftover_swapp_note = if leftover_base > 0 {
-        // bump {serial_num, swap_count} exactly the same
-        // way as in the partial-consume test
+        // bump {serial_num, swap_cnt} exactly like the partial-consume circuit
         let mut sn = note1.serial_num();
         sn[3] = Felt::new(sn[3].as_int() + 1);
         let swap_cnt = note1_swap_cnt + 1;
@@ -1189,7 +1192,7 @@ pub fn try_match_swapp_notes(
         Some(
             create_partial_swap_note(
                 maker_id,
-                taker_id, // last counter-party
+                matcher, // last counter-party is the matcher
                 FungibleAsset::new(offer1.faucet_id(), leftover_base)
                     .unwrap()
                     .into(),
@@ -1205,9 +1208,9 @@ pub fn try_match_swapp_notes(
         None
     };
 
-    // ────────────────────────────────────────────────────────────
-    // 6. All done
-    // ────────────────────────────────────────────────────────────
+    //-----------------------------------------------------------------------
+    // 7. All done
+    //-----------------------------------------------------------------------
     Ok(Some(MatchedSwap {
         p2id_from_1_to_2,
         p2id_from_2_to_1,
