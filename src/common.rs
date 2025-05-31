@@ -123,7 +123,7 @@ pub async fn create_basic_faucet(
     let anchor_block = client.get_latest_epoch_block().await.unwrap();
     let symbol = TokenSymbol::new("MID").unwrap();
     let decimals = 8;
-    let max_supply = Felt::new(1_000_000);
+    let max_supply = Felt::new(1_000_000_000);
     let builder = AccountBuilder::new(init_seed)
         .anchor((&anchor_block).try_into().unwrap())
         .account_type(AccountType::FungibleFaucet)
@@ -234,42 +234,48 @@ pub async fn setup_accounts_and_faucets(
     num_faucets: usize,
     balances: Vec<Vec<u64>>,
 ) -> Result<(Vec<Account>, Vec<Account>), ClientError> {
-    // 1) Create the [num_accounts] basic accounts
+    // ---------------------------------------------------------------------
+    // 1)  Create basic accounts
+    // ---------------------------------------------------------------------
     let mut accounts = Vec::with_capacity(num_accounts);
     for i in 0..num_accounts {
         let (account, _) = create_basic_account(client, keystore.clone()).await?;
-        println!("Created Account #{i} => ID: {:?}", account.id());
+        println!("Created Account #{i} ⇒ ID: {:?}", account.id().to_hex());
         accounts.push(account);
     }
 
-    // 2) Create the [num_faucets] basic faucets
+    // ---------------------------------------------------------------------
+    // 2)  Create basic faucets
+    // ---------------------------------------------------------------------
     let mut faucets = Vec::with_capacity(num_faucets);
     for j in 0..num_faucets {
         let faucet = create_basic_faucet(client, keystore.clone()).await?;
-        println!("Created Faucet #{j} => ID: {:?}", faucet.id());
+        println!("Created Faucet #{j} ⇒ ID: {:?}", faucet.id().to_hex());
         faucets.push(faucet);
     }
 
-    // Make sure the client has synced and sees these new accounts/faucets
+    // Tell the client about the new accounts/faucets
     client.sync_state().await?;
 
-    // 3) Mint tokens for each account from each faucet using `balances`
-    //    Then consume each minted note, so the tokens truly reside in each account’s public vault
-    for (acct_index, account) in accounts.iter().enumerate() {
-        for (faucet_index, faucet) in faucets.iter().enumerate() {
-            let amount_to_mint = balances[acct_index][faucet_index];
-            if amount_to_mint == 0 {
+    // ---------------------------------------------------------------------
+    // 3)  Mint tokens
+    // ---------------------------------------------------------------------
+    // `minted_notes[i]` collects the notes minted **for** `accounts[i]`
+    let mut minted_notes: Vec<Vec<Note>> = vec![Vec::new(); num_accounts];
+
+    for (acct_idx, account) in accounts.iter().enumerate() {
+        for (faucet_idx, faucet) in faucets.iter().enumerate() {
+            let amount = balances[acct_idx][faucet_idx];
+            if amount == 0 {
                 continue;
             }
 
-            println!(
-                "Minting {amount_to_mint} tokens from Faucet #{faucet_index} to Account #{acct_index}"
-            );
+            println!("Minting {amount} tokens from Faucet #{faucet_idx} to Account #{acct_idx}");
 
-            // Build a "mint fungible asset" transaction from this faucet
-            let fungible_asset = FungibleAsset::new(faucet.id(), amount_to_mint).unwrap();
-            let tx_req = TransactionRequestBuilder::mint_fungible_asset(
-                fungible_asset,
+            // Build & submit the mint transaction
+            let asset = FungibleAsset::new(faucet.id(), amount).unwrap();
+            let tx_request = TransactionRequestBuilder::mint_fungible_asset(
+                asset,
                 account.id(),
                 NoteType::Public,
                 client.rng(),
@@ -278,33 +284,44 @@ pub async fn setup_accounts_and_faucets(
             .build()
             .unwrap();
 
-            // Submit the mint transaction
-            let tx_exec = client.new_transaction(faucet.id(), tx_req).await?;
+            let tx_exec = client.new_transaction(faucet.id(), tx_request).await?;
             client.submit_transaction(tx_exec.clone()).await?;
 
-            // Extract the minted note
-            let minted_note = if let OutputNote::Full(note) = tx_exec.created_notes().get_note(0) {
-                note.clone()
-            } else {
-                panic!("Expected OutputNote::Full, but got something else");
+            // Remember the freshly-created note so we can consume it later
+            let minted_note = match tx_exec.created_notes().get_note(0) {
+                OutputNote::Full(n) => n.clone(),
+                _ => panic!("Expected OutputNote::Full, got something else"),
             };
+            minted_notes[acct_idx].push(minted_note);
+        }
+    }
 
-            // Wait for the note to appear on the account side
-            wait_for_notes(client, account, 1).await?;
-            client.sync_state().await?;
+    // ---------------------------------------------------------------------
+    // 4)  ONE wait-phase – ensure every account can now see all its notes
+    // ---------------------------------------------------------------------
+    for (acct_idx, account) in accounts.iter().enumerate() {
+        let expected = minted_notes[acct_idx].len();
+        if expected > 0 {
+            wait_for_notes(client, account, expected).await?;
+        }
+    }
+    client.sync_state().await?;
 
-            // Now consume the minted note from the account side
-            // so that the tokens reside in the account’s vault publicly
+    // ---------------------------------------------------------------------
+    // 5)  Consume notes so the tokens live in the public vaults
+    // ---------------------------------------------------------------------
+    for (acct_idx, account) in accounts.iter().enumerate() {
+        for note in &minted_notes[acct_idx] {
             let consume_req = TransactionRequestBuilder::new()
-                .with_authenticated_input_notes([(minted_note.id(), None)])
+                .with_authenticated_input_notes([(note.id(), None)])
                 .build()
                 .unwrap();
 
             let tx_exec = client.new_transaction(account.id(), consume_req).await?;
             client.submit_transaction(tx_exec).await?;
-            client.sync_state().await?;
         }
     }
+    client.sync_state().await?;
 
     Ok((accounts, faucets))
 }
@@ -972,9 +989,9 @@ pub fn decompose_swapp_note(note: &Note) -> Result<(FungibleAsset, FungibleAsset
 }
 
 /// Convenience: creator = first two field elements in the inputs after the
-/// requested asset word.  
+/// requested asset word.
 /// (Exactly how SWAPP.masm constructs it.)
-fn creator_of(note: &Note) -> AccountId {
+pub fn creator_of(note: &Note) -> AccountId {
     let vals = note.inputs().values();
     let prefix = Felt::from(vals[12]);
     let suffix = Felt::from(vals[13]);
@@ -1147,17 +1164,18 @@ pub fn try_match_swapp_notes(
 
     let p2id_from_1_to_2 = create_p2id_note(
         matcher,
-        taker_id,
-        vec![asset_base],
+        maker_id,
+        vec![asset_quote],
         NoteType::Public,
         Felt::new(0),
         p2id_1_sn,
     )
     .unwrap();
+
     let p2id_from_2_to_1 = create_p2id_note(
         matcher,
-        maker_id,
-        vec![asset_quote],
+        taker_id,
+        vec![asset_base],
         NoteType::Public,
         Felt::new(0),
         p2id_2_sn,

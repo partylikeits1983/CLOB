@@ -385,6 +385,7 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
 
     Ok(())
 }
+
 #[tokio::test]
 async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientError> {
     // ────────────────────────────────────────────────────────────
@@ -464,17 +465,8 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
     // 5.  Off-chain matcher tries to cross the two orders
     // ────────────────────────────────────────────────────────────
     let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher.id())
-        .unwrap() // call succeeded
+        .unwrap()
         .expect("orders did not cross – test set-up is wrong");
-
-    println!("\n[matcher] {:?}", swap_data);
-
-    println!("swap note args 1: {:?}", swap_data.note1_args);
-    println!("swap note args 2: {:?}", swap_data.note2_args);
-
-    /*     println!("p2id_note 1 {:?}", swap_data.p2id_from_1_to_2.id());
-    println!("p2id_note 2 {:?}", swap_data.p2id_from_2_to_1.id());
-    println!("swapp note {:?}", swap_data.leftover_swapp_note.clone().unwrap().id()); */
 
     // ────────────────────────────────────────────────────────────
     // 6.  Build the single consume-transaction
