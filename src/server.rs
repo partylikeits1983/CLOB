@@ -1,18 +1,17 @@
 use axum::{
-    Router,
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    response::Json,
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::{
-    database::{Database, SwapNoteRecord, SwapNoteStatus},
+    database::{Database, SwapNoteRecord},
     note_serialization::deserialize_note,
     orderbook::OrderBookManager,
 };
@@ -112,7 +111,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/orderbook", get(get_orderbook))
         .route("/orders/user", get(get_user_orders))
         .route("/depth/:base/:quote", get(get_depth_chart))
-        .route("/match", post(trigger_matching))
         .route("/stats", get(get_stats))
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -128,7 +126,7 @@ async fn health_check() -> Json<serde_json::Value> {
 async fn submit_order(
     State(state): State<AppState>,
     Json(payload): Json<SubmitOrderRequest>,
-) -> Result<Json<SubmitOrderResponse>, (StatusCode, String)> {
+) -> Json<SubmitOrderResponse> {
     info!("Received order submission request");
 
     // Deserialize the note from base64
@@ -136,33 +134,34 @@ async fn submit_order(
         Ok(note) => note,
         Err(e) => {
             error!("Failed to deserialize note: {}", e);
-            return Err((StatusCode::BAD_REQUEST, format!("Invalid note data: {}", e)));
+            return Json(SubmitOrderResponse {
+                success: false,
+                order_id: "".to_string(),
+                message: format!("Invalid note data: {}", e),
+            });
         }
     };
 
-    // Add to order book manager
+    // Add to order book manager (thread-safe, no blockchain interaction)
     let mut manager = state.orderbook_manager.write().await;
     match manager.add_swap_note(note, &state.db).await {
         Ok(order_id) => {
             info!("Successfully added order: {}", order_id);
-
-            // Trigger matching after adding the order
-            if let Err(e) = manager.run_matching_cycle(&state.db).await {
-                error!("Error during matching cycle: {}", e);
-            }
-
-            Ok(Json(SubmitOrderResponse {
+            Json(SubmitOrderResponse {
                 success: true,
                 order_id,
-                message: "Order submitted successfully".to_string(),
-            }))
+                message:
+                    "Order submitted successfully. Matching engine will process automatically."
+                        .to_string(),
+            })
         }
         Err(e) => {
             error!("Failed to add order: {}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to submit order: {}", e),
-            ))
+            Json(SubmitOrderResponse {
+                success: false,
+                order_id: "".to_string(),
+                message: format!("Failed to submit order: {}", e),
+            })
         }
     }
 }
@@ -315,26 +314,6 @@ async fn get_depth_chart(
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to get depth chart: {}", e),
-            ))
-        }
-    }
-}
-
-async fn trigger_matching(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let mut manager = state.orderbook_manager.write().await;
-    match manager.run_matching_cycle(&state.db).await {
-        Ok(matches) => Ok(Json(serde_json::json!({
-            "success": true,
-            "matches": matches,
-            "message": "Matching cycle completed"
-        }))),
-        Err(e) => {
-            error!("Failed to run matching cycle: {}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to run matching cycle: {}", e),
             ))
         }
     }

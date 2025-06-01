@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
 use miden_client::note::Note;
-use miden_tx::utils::{Deserializable, Serializable, SliceReader};
+use miden_tx::utils::{Deserializable, Serializable};
 
 pub fn serialize_note(note: &Note) -> Result<String> {
     // Use the proper Miden serialization method
@@ -46,7 +46,7 @@ pub fn extract_note_info(note: &Note) -> Result<(String, String, u64, String, u6
     dotenv().ok();
 
     let usdc_faucet_id = env::var("USDC_FAUCET_ID").unwrap_or_default();
-    let eth_faucet_id = env::var("ETH_FAUCET_ID").unwrap_or_default();
+    let _eth_faucet_id = env::var("ETH_FAUCET_ID").unwrap_or_default();
 
     // Parse faucet IDs to AccountId
     let usdc_id = if !usdc_faucet_id.is_empty() {

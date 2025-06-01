@@ -1,3 +1,4 @@
+mod blockchain_executor;
 mod common;
 mod database;
 mod note_serialization;

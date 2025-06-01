@@ -387,8 +387,12 @@ proc.execute_SWAPp
     mem_load.AMT_TOKENS_B mem_load.AMT_TOKENS_A
     # => [token_a_AMT, token_b_AMT, token_b_AMT_IN]
 
+    push.111 debug.stack drop
+
     exec.calculate_tokens_a_for_b
     # => [token_a_AMT_out]
+
+    push.222 debug.stack drop
 
     # store token_a_AMT_out in mem
     dup mem_store.AMT_TOKENS_A_OUT

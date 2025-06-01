@@ -177,6 +177,83 @@ fn test_try_match_swapp_notes_arithmetic_case2() {
 }
 
 #[test]
+fn test_try_match_swapp_notes_arithmetic_case3() {
+    let maker_id = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
+    let taker_id = AccountId::from_hex("0xbbb871c76d7a27100000cc8533e494").unwrap();
+    let matcher = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
+
+    let faucet_a = AccountId::from_hex("0xe125e96a9af535200000a5dc5d4500").unwrap();
+    let faucet_b = AccountId::from_hex("0x34d1b6993361072000005737e7ae4b").unwrap();
+
+    let maker_note = create_partial_swap_note(
+        maker_id,
+        maker_id,
+        FungibleAsset::new(faucet_a, 1815515).unwrap().into(), // offered
+        FungibleAsset::new(faucet_b, 689).unwrap().into(),     // wanted
+        Word::default(),
+        0,
+    )
+    .unwrap();
+
+    // taker: 60 B  → 50 A
+    let taker_note = create_partial_swap_note(
+        taker_id,
+        taker_id,
+        FungibleAsset::new(faucet_b, 352).unwrap().into(), // offered
+        FungibleAsset::new(faucet_a, 912736).unwrap().into(), // wanted
+        Word::default(),
+        0,
+    )
+    .unwrap();
+
+    // ────────────────────────────────────────────────────────────
+    // 2. Run the matcher
+    // ────────────────────────────────────────────────────────────
+    let swap = try_match_swapp_notes(&maker_note, &taker_note, matcher)
+        .unwrap()
+        .expect("orders should cross");
+
+    // ────────────────────────────────────────────────────────────
+    // 3. Assertions
+    // ────────────────────────────────────────────────────────────
+    // 3-a.  P2ID payloads
+    let p2id_a_out = swap
+        .p2id_from_1_to_2
+        .assets()
+        .iter()
+        .next()
+        .unwrap()
+        .unwrap_fungible();
+    assert_eq!(p2id_a_out.amount(), 346); // 30 B to taker
+    assert_eq!(p2id_a_out.faucet_id(), faucet_b);
+
+    let p2id_b_out = swap
+        .p2id_from_2_to_1
+        .assets()
+        .iter()
+        .next()
+        .unwrap()
+        .unwrap_fungible();
+    assert_eq!(p2id_b_out.amount(), 911710); // 50 A to maker
+    assert_eq!(p2id_b_out.faucet_id(), faucet_a);
+
+    // 3-b.  Left-over maker order: 100 A → 60 B
+    let leftover = swap
+        .leftover_swapp_note
+        .as_ref()
+        .expect("maker not 100 % filled");
+    let (left_off, left_req) = decompose_swapp_note(leftover).unwrap();
+    assert_eq!(left_off.amount(), 903805);
+    assert_eq!(left_off.faucet_id(), faucet_a);
+    assert_eq!(left_req.amount(), 343);
+    assert_eq!(left_req.faucet_id(), faucet_b);
+
+    // 3-c.  Note-arg limb-3 semantics
+    assert_eq!(swap.note1_args[3].as_int(), 346); // maker receives 30 B
+    assert_eq!(swap.note2_args[3].as_int(), 911710); // taker receives 50 A
+}
+
+#[test]
 fn test_create_partial_swap_note_with_different_amounts() {
     let maker_id = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
     let faucet_a = AccountId::from_hex("0xe125e96a9af535200000a5dc5d4500").unwrap();

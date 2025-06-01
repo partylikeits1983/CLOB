@@ -5,7 +5,7 @@ use miden_assembly::{
 use miden_crypto::dsa::rpo_falcon512::Polynomial;
 use rand::{RngCore, rngs::StdRng};
 use std::{
-    fmt, fs,
+    env, fmt, fs,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -594,6 +594,42 @@ pub async fn create_order(
     Ok(swapp_note)
 }
 
+pub async fn create_order_simple(
+    client: &mut Client,
+    trader: AccountId,
+    offered_asset: Asset,
+    requested_asset: Asset,
+) -> Result<Note, NoteError> {
+    let swap_serial_num = client.rng().draw_word();
+    let swap_count = 0;
+
+    let swapp_note = create_partial_swap_note(
+        trader,
+        trader,
+        offered_asset.into(),
+        requested_asset.into(),
+        swap_serial_num,
+        swap_count,
+    )
+    .unwrap();
+
+    let note_req = TransactionRequestBuilder::new()
+        .with_own_output_notes(vec![OutputNote::Full(swapp_note.clone())])
+        .build()
+        .unwrap();
+    let tx_result = client.new_transaction(trader, note_req).await.unwrap();
+
+    println!(
+        "View transaction on MidenScan: https://testnet.midenscan.com/tx/{:?}",
+        tx_result.executed_transaction().id()
+    );
+
+    let _ = client.submit_transaction(tx_result).await;
+    client.sync_state().await.unwrap();
+
+    Ok(swapp_note)
+}
+
 pub fn create_p2id_note(
     sender: AccountId,
     target: AccountId,
@@ -819,7 +855,8 @@ pub async fn create_public_immutable_contract(
     .with_supports_all_types();
 
     // @dev this is bad that I need to get an anchor block to create a contract
-    let endpoint = Endpoint::localhost();
+    let endpoint: Endpoint =
+        Endpoint::try_from(env::var("MIDEN_NODE_ENDPOINT").unwrap().as_str()).unwrap();
     let timeout_ms = 10_000;
     let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
     let mut client = ClientBuilder::new()
@@ -1007,6 +1044,7 @@ pub fn creator_of(note: &Note) -> AccountId {
 
 /// Everything the matcher needs in order to build a single
 /// consume-transaction that crosses the two SWAPP orders.
+#[derive(Clone)]
 pub struct MatchedSwap {
     /// P2ID note that transfers the *base* asset
     ///   maker → taker (created by the matcher).
@@ -1290,7 +1328,10 @@ pub fn generate_depth_chart(
     const BOLD: &str = "\x1b[1m";
 
     println!("\n╔══════════════════════════════════════════════════════════╗");
-    println!("║{}                 USDC/ETH ORDERBOOK DEPTH CHART           {}║", BOLD, RESET);
+    println!(
+        "║{}                 USDC/ETH ORDERBOOK DEPTH CHART           {}║",
+        BOLD, RESET
+    );
     println!("╚══════════════════════════════════════════════════════════╝");
 
     // Separate bids and asks
@@ -1399,9 +1440,15 @@ pub fn generate_depth_chart(
 
     // Print the depth chart header
     println!("\n╔══════════════════════════════════════════════════════════════════════════════╗");
-    println!("║{}                               DEPTH CHART                                     {}║", BOLD, RESET);
+    println!(
+        "║{}                               DEPTH CHART                                     {}║",
+        BOLD, RESET
+    );
     println!("╠════════════════════════════════════╦═════════════════════════════════════════╣");
-    println!("║{}          BIDS (Buy Orders)         {}║{}          ASKS (Sell Orders)             {}║", GREEN, RESET, RED, RESET);
+    println!(
+        "║{}          BIDS (Buy Orders)         {}║{}          ASKS (Sell Orders)             {}║",
+        GREEN, RESET, RED, RESET
+    );
     println!("╠════════╦═══════╦════════╦══════════╬════════╦═══════╦════════╦══════════════╣");
     println!("║ Price  ║ ETH   ║ Total  ║ Trader   ║ Price  ║ ETH   ║ Total  ║ Trader       ║");
     println!("╠════════╬═══════╬════════╬══════════╬════════╬═══════╬════════╬══════════════╣");

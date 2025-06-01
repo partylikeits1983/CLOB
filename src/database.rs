@@ -392,4 +392,26 @@ impl Database {
 
         Ok(records)
     }
+
+    pub async fn check_p2id_notes_exist(&self, note_ids: &[&str]) -> Result<Vec<String>> {
+        if note_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = note_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let query = format!(
+            "SELECT note_id FROM p2id_notes WHERE note_id IN ({})",
+            placeholders
+        );
+
+        let mut query_builder = sqlx::query(&query);
+        for note_id in note_ids {
+            query_builder = query_builder.bind(*note_id);
+        }
+
+        let rows = query_builder.fetch_all(&self.pool).await?;
+        let existing_ids: Vec<String> = rows.iter().map(|row| row.get("note_id")).collect();
+
+        Ok(existing_ids)
+    }
 }

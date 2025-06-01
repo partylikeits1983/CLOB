@@ -20,11 +20,12 @@ use miden_client::{
     crypto::FeltRng,
     keystore::FilesystemKeyStore,
     rpc::Endpoint,
+    transaction::{OutputNote, TransactionRequestBuilder},
 };
 
 use crate::common::{
-    create_partial_swap_note, delete_keystore_and_store, instantiate_client, price_to_swap_note,
-    setup_accounts_and_faucets,
+    create_partial_swap_note, creator_of, delete_keystore_and_store, instantiate_client,
+    price_to_swap_note, setup_accounts_and_faucets,
 };
 
 #[derive(Debug, Deserialize)]
@@ -83,11 +84,16 @@ impl MarketMaker {
         if is_setup_mode {
             info!("Running in setup mode - will create faucets and accounts");
 
+            // Load environment variables first
+            dotenv().ok();
+
             // Clean previous data
             delete_keystore_and_store().await;
 
             // Initialize Miden client
-            let endpoint = Endpoint::localhost();
+            let endpoint: Endpoint =
+                Endpoint::try_from(env::var("MIDEN_NODE_ENDPOINT").unwrap().as_str()).unwrap();
+
             let mut client = instantiate_client(endpoint).await?;
             let keystore = FilesystemKeyStore::new("./keystore".into())?;
 
@@ -120,6 +126,7 @@ impl MarketMaker {
             info!("Matcher account ID: {}", matcher_account.id().to_hex());
 
             // Save faucet IDs and matcher account to .env file
+            let miden_endpoint = env::var("MIDEN_NODE_ENDPOINT").unwrap();
             let env_content = format!(
                 "# Miden CLOB Configuration\n\
                 # Faucet IDs for the trading pair\n\
@@ -128,6 +135,9 @@ impl MarketMaker {
                 \n\
                 # Matcher account ID\n\
                 MATCHER_ACCOUNT_ID={}\n\
+                \n\
+                # Miden Node Endpoint\n\
+                MIDEN_NODE_ENDPOINT={}\n\
                 \n\
                 # Server configuration\n\
                 SERVER_URL={}\n\
@@ -142,6 +152,7 @@ impl MarketMaker {
                 faucets[0].id().to_hex(),      // USDC
                 faucets[1].id().to_hex(),      // ETH
                 matcher_account.id().to_hex(), // Matcher account
+                miden_endpoint,                // Miden node endpoint
                 server_url,
                 config.spread_percentage,
                 config.num_levels,
@@ -181,7 +192,9 @@ impl MarketMaker {
             }
 
             // Initialize client and import faucets
-            let endpoint = Endpoint::localhost();
+            let endpoint: Endpoint =
+                Endpoint::try_from(env::var("MIDEN_NODE_ENDPOINT").unwrap().as_str()).unwrap();
+
             let mut client = instantiate_client(endpoint).await?;
 
             let usdc_id = AccountId::from_hex(&usdc_faucet_id)?;
@@ -332,13 +345,9 @@ impl MarketMaker {
             let serial_num = if let Some(ref mut client) = self.client {
                 client.rng().draw_word()
             } else {
-                // Create a deterministic serial number for demo purposes
-                [
-                    Felt::new(level as u64 + 1),
-                    Felt::new(1),
-                    Felt::new(1),
-                    Felt::new(1),
-                ]
+                return Err(anyhow!(
+                    "Client not available for generating random serial numbers"
+                ));
             };
 
             // Create bid order (buying ETH with USDC)
@@ -353,8 +362,21 @@ impl MarketMaker {
                 serial_num,
             );
 
+            // Submit the note as a transaction to the blockchain
+            if let Some(ref mut client) = self.client {
+                let req = TransactionRequestBuilder::new()
+                    .with_own_output_notes(vec![OutputNote::Full(swap_note.clone())])
+                    .build()?;
+                let tx = client.new_transaction(creator_account, req).await?;
+                client.submit_transaction(tx).await?;
+
+                info!(
+                    "✅ Submitted BID transaction: {:.4} ETH @ ${:.2}",
+                    eth_quantity, bid_price
+                );
+            }
+
             orders.push(swap_note);
-            info!("Created BID: {:.4} ETH @ ${:.2}", eth_quantity, bid_price);
         }
 
         // Generate ask orders (selling ETH for USDC) - some will overlap with bids
@@ -397,13 +419,9 @@ impl MarketMaker {
             let serial_num = if let Some(ref mut client) = self.client {
                 client.rng().draw_word()
             } else {
-                // Create a deterministic serial number for demo purposes
-                [
-                    Felt::new(level as u64 + 1000),
-                    Felt::new(2),
-                    Felt::new(2),
-                    Felt::new(2),
-                ]
+                return Err(anyhow!(
+                    "Client not available for generating random serial numbers"
+                ));
             };
 
             // Create ask order (selling ETH for USDC)
@@ -418,8 +436,21 @@ impl MarketMaker {
                 serial_num,
             );
 
+            // Submit the note as a transaction to the blockchain
+            if let Some(ref mut client) = self.client {
+                let req = TransactionRequestBuilder::new()
+                    .with_own_output_notes(vec![OutputNote::Full(swap_note.clone())])
+                    .build()?;
+                let tx = client.new_transaction(creator_account, req).await?;
+                client.submit_transaction(tx).await?;
+
+                info!(
+                    "✅ Submitted ASK transaction: {:.4} ETH @ ${:.2}",
+                    eth_quantity, ask_price
+                );
+            }
+
             orders.push(swap_note);
-            info!("Created ASK: {:.4} ETH @ ${:.2}", eth_quantity, ask_price);
         }
 
         // Submit orders to server
