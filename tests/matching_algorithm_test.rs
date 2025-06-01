@@ -2,7 +2,6 @@ use std::time::Instant;
 
 use miden_client::{
     ClientError, Felt,
-    account::AccountId,
     asset::FungibleAsset,
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
@@ -15,8 +14,9 @@ use std::sync::Arc;
 
 use miden_clob::common::{
     compute_partial_swapp, create_p2id_note, create_partial_swap_note, creator_of,
-    decompose_swapp_note, delete_keystore_and_store, get_p2id_serial_num, get_swapp_note,
-    instantiate_client, setup_accounts_and_faucets, try_match_swapp_notes, wait_for_note,
+    decompose_swapp_note, delete_keystore_and_store, generate_depth_chart, get_p2id_serial_num,
+    get_swapp_note, instantiate_client, price_to_swap_note, setup_accounts_and_faucets,
+    try_match_swapp_notes, wait_for_note,
 };
 use miden_crypto::rand::FeltRng;
 
@@ -547,52 +547,6 @@ async fn fill_counter_party_swap_notes_algo() -> Result<(), ClientError> {
     Ok(())
 }
 
-/// Helper — create a partial swap note from a price.
-/// If maker is **selling ETH for USDC**
-///     offered = qty_eth,         requested = price_usdc_per_eth * qty_eth
-/// If maker is **selling USDC for ETH**
-///     offered = qty_usdc,        requested = qty_usdc / price_usdc_per_eth  (rounded)
-fn price_to_swap_note(
-    maker: AccountId,
-    last_filler: AccountId,
-    sell_eth: bool,           // true = maker offers ETH, wants USDC
-    qty: u128,                // whole-token qty to sell
-    price_usdc_per_eth: u128, // price (e.g. 2_500)
-    faucet_usdc: &miden_client::account::Account,
-    faucet_eth: &miden_client::account::Account,
-    serial: [Felt; 4],
-) -> Note {
-    let (offered, requested) = if sell_eth {
-        // Maker sells `qty` ETH, wants `qty * price` USDC
-        (
-            FungibleAsset::new(faucet_eth.id(), qty.try_into().unwrap()).unwrap(),
-            FungibleAsset::new(
-                faucet_usdc.id(),
-                (qty * price_usdc_per_eth).try_into().unwrap(),
-            )
-            .unwrap(),
-        )
-    } else {
-        // Maker sells USDC, wants ETH; round down any fractional ETH
-        let offered_usdc = qty;
-        let want_eth = offered_usdc / price_usdc_per_eth;
-        (
-            FungibleAsset::new(faucet_usdc.id(), offered_usdc.try_into().unwrap()).unwrap(),
-            FungibleAsset::new(faucet_eth.id(), want_eth.try_into().unwrap()).unwrap(),
-        )
-    };
-
-    create_partial_swap_note(
-        maker,       // creator
-        last_filler, // initially the same account
-        offered.into(),
-        requested.into(),
-        serial,
-        0, // not filled yet
-    )
-    .unwrap()
-}
-
 #[tokio::test]
 async fn usdc_eth_orderbook_match() -> Result<(), ClientError> {
     delete_keystore_and_store().await;
@@ -620,7 +574,7 @@ async fn usdc_eth_orderbook_match() -> Result<(), ClientError> {
     // ──────────────────────────────────────────────────────────────────────
     // 2.  Build an orderbook (3 price levels per side)
     // ──────────────────────────────────────────────────────────────────────
-    let price_levels = [2_400u128, 2_450, 2_500]; // USDC per 1 ETH
+    let price_levels = [2_400u64, 2_450, 2_500]; // USDC per 1 ETH
     let mut swap_notes = Vec::<Note>::new();
 
     for price in price_levels {
@@ -628,11 +582,11 @@ async fn usdc_eth_orderbook_match() -> Result<(), ClientError> {
         let n = price_to_swap_note(
             alice.id(),
             alice.id(),
-            /*sell_eth=*/ true,
-            1,
-            price,
-            &faucet_usdc,
-            &faucet_eth,
+            /*is_bid=*/ false,             // false = ask (selling ETH for USDC)
+            price,             // price in USDC per ETH
+            1,                 // quantity of ETH to sell
+            &faucet_eth.id(),  // base asset (ETH)
+            &faucet_usdc.id(), // quote asset (USDC)
             client.rng().draw_word(),
         );
         swap_notes.push(n);
@@ -641,11 +595,11 @@ async fn usdc_eth_orderbook_match() -> Result<(), ClientError> {
         let n = price_to_swap_note(
             bob.id(),
             bob.id(),
-            /*sell_eth=*/ false,
-            2_500,
-            price,
-            &faucet_usdc,
-            &faucet_eth,
+            /*is_bid=*/ true,              // true = bid (buying ETH with USDC)
+            price,             // price in USDC per ETH
+            1,                 // quantity: roughly 1 ETH worth
+            &faucet_eth.id(),  // base asset (ETH)
+            &faucet_usdc.id(), // quote asset (USDC)
             client.rng().draw_word(),
         );
         swap_notes.push(n);
@@ -764,39 +718,39 @@ async fn realistic_usdc_eth_orderbook_match() -> Result<(), ClientError> {
 
     // Current market price is around 2500 USDC per ETH
     // Create buy orders (bids) below market price
-    let bid_prices = [2450u128, 2400, 2350, 2300, 2250];
+    let bid_prices = [2450u64, 2400, 2350, 2300, 2250];
     // Create sell orders (asks) above market price
-    let ask_prices = [2550u128, 2600, 2650, 2700, 2750];
+    let ask_prices = [2550u64, 2600, 2650, 2700, 2750];
 
     let mut swap_notes = Vec::<Note>::new();
 
     // Create buy orders (bids) - users want to buy ETH with USDC
     for (i, price) in bid_prices.iter().enumerate() {
         // Alice places larger orders at better prices
-        let qty_usdc = 2500 - (i as u128 * 100);
+        let qty_usdc = 2500 - (i as u64);
         let n = price_to_swap_note(
             alice.id(),
             alice.id(),
-            /*sell_eth=*/ false, // Alice is selling USDC to buy ETH
-            qty_usdc,
-            *price,
-            &faucet_usdc,
-            &faucet_eth,
+            /*is_bid=*/ true,              // true = bid (buying ETH with USDC)
+            *price,            // price in USDC per ETH
+            qty_usdc / price,  // quantity of ETH to buy
+            &faucet_eth.id(),  // base asset (ETH)
+            &faucet_usdc.id(), // quote asset (USDC)
             client.rng().draw_word(),
         );
         swap_notes.push(n);
 
         // Bob places medium-sized orders
         if i < 3 {
-            let qty_usdc = 1500 - (i as u128 * 100);
+            let qty_usdc = 1500 - (i as u64);
             let n = price_to_swap_note(
                 bob.id(),
                 bob.id(),
-                /*sell_eth=*/ false, // Bob is selling USDC to buy ETH
-                qty_usdc,
-                *price,
-                &faucet_usdc,
-                &faucet_eth,
+                /*is_bid=*/ true,              // true = bid (buying ETH with USDC)
+                *price,            // price in USDC per ETH
+                qty_usdc / price,  // quantity of ETH to buy
+                &faucet_eth.id(),  // base asset (ETH)
+                &faucet_usdc.id(), // quote asset (USDC)
                 client.rng().draw_word(),
             );
             swap_notes.push(n);
@@ -806,16 +760,16 @@ async fn realistic_usdc_eth_orderbook_match() -> Result<(), ClientError> {
     // Create sell orders (asks) - users want to sell ETH for USDC
     for (i, price) in ask_prices.iter().enumerate() {
         // Carol places ETH sell orders
-        let qty_eth = 1 - (i as u128 * 15) / 100; // 1, 0.85, 0.7, 0.55, 0.4 ETH
+        let qty_eth = 1 - (i as u64 * 15) / 100; // 1, 0.85, 0.7, 0.55, 0.4 ETH
         if qty_eth > 0 {
             let n = price_to_swap_note(
                 carol.id(),
                 carol.id(),
-                /*sell_eth=*/ true, // Carol is selling ETH to buy USDC
-                qty_eth,
-                *price,
-                &faucet_usdc,
-                &faucet_eth,
+                /*is_bid=*/ false,             // false = ask (selling ETH for USDC)
+                *price,            // price in USDC per ETH
+                qty_eth,           // quantity of ETH to sell
+                &faucet_eth.id(),  // base asset (ETH)
+                &faucet_usdc.id(), // quote asset (USDC)
                 client.rng().draw_word(),
             );
             swap_notes.push(n);
@@ -823,15 +777,15 @@ async fn realistic_usdc_eth_orderbook_match() -> Result<(), ClientError> {
 
         // Bob also sells some ETH at higher prices
         if i > 1 {
-            let qty_eth = 2 - (i as u128 * 25) / 100; // 1.5, 1.25, 1 ETH
+            let qty_eth = 2 - (i as u64 * 25) / 100; // 1.5, 1.25, 1 ETH
             let n = price_to_swap_note(
                 bob.id(),
                 bob.id(),
-                /*sell_eth=*/ true, // Bob is selling ETH to buy USDC
-                qty_eth,
-                *price,
-                &faucet_usdc,
-                &faucet_eth,
+                /*is_bid=*/ false,             // false = ask (selling ETH for USDC)
+                *price,            // price in USDC per ETH
+                qty_eth,           // quantity of ETH to sell
+                &faucet_eth.id(),  // base asset (ETH)
+                &faucet_usdc.id(), // quote asset (USDC)
                 client.rng().draw_word(),
             );
             swap_notes.push(n);
@@ -1003,7 +957,7 @@ async fn usdc_eth_orderbook_depth_chart() -> Result<(), ClientError> {
     // ──────────────────────────────────────────────────────────────────────
     // balances: [USDC, ETH]
     let balances = vec![
-        vec![500_000, 1000],    // Alice — USDC rich, some ETH
+        vec![500_000, 1000],    // Alice — USDC and ETH
         vec![500_000, 1000],    // Bob   — USDC and ETH
         vec![500_000, 1000],    // Carol — USDC and ETH
         vec![500_000, 500_000], // Matcher needs assets, in the future this will be lifted as a requirement
@@ -1029,12 +983,12 @@ async fn usdc_eth_orderbook_depth_chart() -> Result<(), ClientError> {
     // Mid price is 2500
     // Create buy orders (bids) below market price with tighter spread
     let bid_prices = [
-        2498u128, 2495, 2490, 2480, 2460, 2430, 2390, 2340, 2280, 2200,
+        2500u64, 2499, 2498, 2495, 2490, 2480, 2460, 2430, 2390, 2340, 2280,
     ];
 
     // Create sell orders (asks) above market price with tighter spread
     let ask_prices = [
-        2502u128, 2505, 2510, 2520, 2540, 2570, 2610, 2660, 2720, 2800,
+        2500u64, 2505, 2507, 2510, 2520, 2540, 2570, 2610, 2660, 2720, 2800,
     ];
 
     let mut swap_notes = Vec::<Note>::new();
@@ -1044,22 +998,19 @@ async fn usdc_eth_orderbook_depth_chart() -> Result<(), ClientError> {
     for (i, price) in bid_prices.iter().enumerate() {
         // Calculate order size based on distance from mid-price
         // Exponential growth as we move away from mid-price
-        let base_eth = 1u128; // Base size in ETH
+        let base_eth = 1u64; // Base size in ETH
         let multiplier = 1.0 + (i as f64 * 0.3); // Grows with distance from mid-price
-        let eth_amount = (base_eth as f64 * multiplier).ceil() as u128;
-
-        // Calculate USDC amount based on price and ETH amount
-        let usdc_amount = eth_amount * (*price);
+        let eth_amount = (base_eth as f64 * multiplier).ceil() as u64;
 
         // Alice places orders at all price levels
         let n = price_to_swap_note(
             alice.id(),
             alice.id(),
-            /*sell_eth=*/ false, // Alice is selling USDC to buy ETH
-            usdc_amount,
-            *price,
-            &faucet_usdc,
-            &faucet_eth,
+            /*is_bid=*/ true,              // true = bid (buying ETH with USDC)
+            *price,            // price in USDC per ETH
+            eth_amount,        // quantity of ETH to buy
+            &faucet_eth.id(),  // base asset (ETH)
+            &faucet_usdc.id(), // quote asset (USDC)
             client.rng().draw_word(),
         );
         swap_notes.push(n);
@@ -1068,17 +1019,16 @@ async fn usdc_eth_orderbook_depth_chart() -> Result<(), ClientError> {
         if i % 2 == 0 && i < 8 {
             // Bob places larger orders at certain price points
             let bob_multiplier = 0.8 + (i as f64 * 0.3);
-            let bob_eth = (base_eth as f64 * bob_multiplier * 1.5).ceil() as u128;
-            let bob_usdc = bob_eth * (*price);
+            let bob_eth = (base_eth as f64 * bob_multiplier * 1.5).ceil() as u64;
 
             let n = price_to_swap_note(
                 bob.id(),
                 bob.id(),
-                /*sell_eth=*/ false, // Bob is selling USDC to buy ETH
-                bob_usdc,
-                *price,
-                &faucet_usdc,
-                &faucet_eth,
+                /*is_bid=*/ true,              // true = bid (buying ETH with USDC)
+                *price,            // price in USDC per ETH
+                bob_eth,           // quantity of ETH to buy
+                &faucet_eth.id(),  // base asset (ETH)
+                &faucet_usdc.id(), // quote asset (USDC)
                 client.rng().draw_word(),
             );
             swap_notes.push(n);
@@ -1087,16 +1037,15 @@ async fn usdc_eth_orderbook_depth_chart() -> Result<(), ClientError> {
         // Carol occasionally places small orders near the mid-price
         if i < 3 {
             let carol_eth = base_eth;
-            let carol_usdc = carol_eth * (*price);
 
             let n = price_to_swap_note(
                 carol.id(),
                 carol.id(),
-                /*sell_eth=*/ false, // Carol is selling USDC to buy ETH
-                carol_usdc,
-                *price,
-                &faucet_usdc,
-                &faucet_eth,
+                /*is_bid=*/ true,              // true = bid (buying ETH with USDC)
+                *price,            // price in USDC per ETH
+                carol_eth,         // quantity of ETH to buy
+                &faucet_eth.id(),  // base asset (ETH)
+                &faucet_usdc.id(), // quote asset (USDC)
                 client.rng().draw_word(),
             );
             swap_notes.push(n);
@@ -1110,17 +1059,17 @@ async fn usdc_eth_orderbook_depth_chart() -> Result<(), ClientError> {
         // Exponential growth as we move away from mid-price
         let base_size = 1u128; // Base size in ETH
         let multiplier = 1.0 + (i as f64 * 0.3); // Grows with distance from mid-price
-        let qty_eth = (base_size as f64 * multiplier).ceil() as u128;
+        let qty_eth = (base_size as f64 * multiplier).ceil() as u64;
 
         // Carol places orders at all price levels
         let n = price_to_swap_note(
             carol.id(),
             carol.id(),
-            /*sell_eth=*/ true, // Carol is selling ETH to buy USDC
-            qty_eth,
-            *price,
-            &faucet_usdc,
-            &faucet_eth,
+            /*is_bid=*/ false,             // false = ask (selling ETH for USDC)
+            *price,            // price in USDC per ETH
+            qty_eth,           // quantity of ETH to sell
+            &faucet_eth.id(),  // base asset (ETH)
+            &faucet_usdc.id(), // quote asset (USDC)
             client.rng().draw_word(),
         );
         swap_notes.push(n);
@@ -1129,16 +1078,16 @@ async fn usdc_eth_orderbook_depth_chart() -> Result<(), ClientError> {
         if i % 2 == 0 && i < 8 {
             // Bob places larger orders at certain price points
             let bob_multiplier = 0.8 + (i as f64 * 0.25);
-            let bob_qty = (base_size as f64 * bob_multiplier * 1.5).ceil() as u128;
+            let bob_qty = (base_size as f64 * bob_multiplier * 1.5).ceil() as u64;
 
             let n = price_to_swap_note(
                 bob.id(),
                 bob.id(),
-                /*sell_eth=*/ true, // Bob is selling ETH to buy USDC
-                bob_qty,
-                *price,
-                &faucet_usdc,
-                &faucet_eth,
+                /*is_bid=*/ false,             // false = ask (selling ETH for USDC)
+                *price,            // price in USDC per ETH
+                bob_qty,           // quantity of ETH to sell
+                &faucet_eth.id(),  // base asset (ETH)
+                &faucet_usdc.id(), // quote asset (USDC)
                 client.rng().draw_word(),
             );
             swap_notes.push(n);
@@ -1146,15 +1095,15 @@ async fn usdc_eth_orderbook_depth_chart() -> Result<(), ClientError> {
 
         // Alice occasionally places small orders near the mid-price
         if i < 3 {
-            let alice_qty = 1u128;
+            let alice_qty = 1u64;
             let n = price_to_swap_note(
                 alice.id(),
                 alice.id(),
-                /*sell_eth=*/ true, // Alice is selling ETH to buy USDC
-                alice_qty,
-                *price,
-                &faucet_usdc,
-                &faucet_eth,
+                /*is_bid=*/ false,             // false = ask (selling ETH for USDC)
+                *price,            // price in USDC per ETH
+                alice_qty,         // quantity of ETH to sell
+                &faucet_eth.id(),  // base asset (ETH)
+                &faucet_usdc.id(), // quote asset (USDC)
                 client.rng().draw_word(),
             );
             swap_notes.push(n);
@@ -1252,391 +1201,20 @@ async fn usdc_eth_orderbook_depth_chart() -> Result<(), ClientError> {
     println!("Matched {} order pairs", matched_count);
 
     // ──────────────────────────────────────────────────────────────────────
-    // 4. Analyze the orderbook and create a depth chart
+    // 4. Analyze the orderbook and create a depth chart using the refactored function
     // ──────────────────────────────────────────────────────────────────────
-    println!("\n╔══════════════════════════════════════════════════════════╗");
-    println!("║                 USDC/ETH ORDERBOOK DEPTH CHART           ║");
-    println!("╚══════════════════════════════════════════════════════════╝");
+    let account_names = [
+        (alice.id(), "Alice"),
+        (bob.id(), "Bob"),
+        (carol.id(), "Carol"),
+    ];
 
-    // Separate bids and asks
-    let mut bids = Vec::new();
-    let mut asks = Vec::new();
-
-    for note in &swap_notes {
-        if let Ok((offered, requested)) = decompose_swapp_note(note) {
-            let creator_id = creator_of(note);
-            let creator_name = if creator_id == alice.id() {
-                "Alice"
-            } else if creator_id == bob.id() {
-                "Bob"
-            } else if creator_id == carol.id() {
-                "Carol"
-            } else {
-                "Unknown"
-            };
-
-            // Check if this is a bid (buying ETH with USDC) or ask (selling ETH for USDC)
-            if offered.faucet_id() == faucet_usdc.id() {
-                // This is a bid (buy order)
-                // For bids: price = USDC amount / ETH amount
-                let usdc_amount = offered.amount() as f64;
-                let eth_amount = requested.amount() as f64;
-
-                // Ensure we don't divide by zero
-                if eth_amount > 0.0 {
-                    let price = usdc_amount / eth_amount;
-                    bids.push((price, eth_amount, creator_name));
-                }
-            } else {
-                // This is an ask (sell order)
-                // For asks: price = USDC amount / ETH amount
-                let usdc_amount = requested.amount() as f64;
-                let eth_amount = offered.amount() as f64;
-
-                // Ensure we don't divide by zero
-                if eth_amount > 0.0 {
-                    let price = usdc_amount / eth_amount;
-                    asks.push((price, eth_amount, creator_name));
-                }
-            }
-        }
-    }
-
-    // Sort bids by price (descending)
-    bids.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-
-    // Sort asks by price (ascending)
-    asks.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-
-    // Calculate cumulative volumes and prepare for visualization
-    let mut bid_prices = Vec::new();
-    let mut bid_volumes = Vec::new();
-    let mut bid_cumulative = Vec::new();
-    let mut bid_traders = Vec::new();
-
-    let mut ask_prices = Vec::new();
-    let mut ask_volumes = Vec::new();
-    let mut ask_cumulative = Vec::new();
-    let mut ask_traders = Vec::new();
-
-    let mut cumulative_bid_volume = 0.0;
-    for (price, volume, trader) in &bids {
-        bid_prices.push(*price);
-        bid_volumes.push(*volume);
-        cumulative_bid_volume += volume;
-        bid_cumulative.push(cumulative_bid_volume);
-        bid_traders.push(trader);
-    }
-
-    let mut cumulative_ask_volume = 0.0;
-    for (price, volume, trader) in &asks {
-        ask_prices.push(*price);
-        ask_volumes.push(*volume);
-        cumulative_ask_volume += volume;
-        ask_cumulative.push(cumulative_ask_volume);
-        ask_traders.push(trader);
-    }
-
-    // Find the maximum cumulative volume for scaling
-    let max_cumulative = f64::max(
-        bid_cumulative.last().copied().unwrap_or(0.0),
-        ask_cumulative.last().copied().unwrap_or(0.0),
+    generate_depth_chart(
+        &swap_notes,
+        &faucet_usdc.id(),
+        &faucet_eth.id(),
+        &account_names,
     );
-
-    // Calculate the spread
-    let spread_info = if !bids.is_empty() && !asks.is_empty() {
-        let best_bid = bids[0].0;
-        let best_ask = asks[0].0;
-        let spread = best_ask - best_bid;
-        let spread_percentage = (spread / best_bid) * 100.0;
-        let mid_price = (best_bid + best_ask) / 2.0;
-
-        format!(
-            "Best Bid: {:.2} USDC | Best Ask: {:.2} USDC | Spread: {:.2} ({:.2}%) | Mid: {:.2}",
-            best_bid, best_ask, spread, spread_percentage, mid_price
-        )
-    } else {
-        "No spread available - missing bids or asks".to_string()
-    };
-
-    // Print market summary
-    println!("\n╔══════════════════════════════════════════════════════════╗");
-    println!("║                     MARKET SUMMARY                       ║");
-    println!("╠══════════════════════════════════════════════════════════╣");
-    println!("║ {:<60} ║", spread_info);
-    println!("╚══════════════════════════════════════════════════════════╝");
-
-    // Print the depth chart header
-    println!("\n╔══════════════════════════════════════════════════════════════════════════════╗");
-    println!("║                               DEPTH CHART                                     ║");
-    println!("╠════════════════════════════════════╦═════════════════════════════════════════╣");
-    println!("║          BIDS (Buy Orders)         ║          ASKS (Sell Orders)             ║");
-    println!("╠════════╦═══════╦════════╦══════════╬════════╦═══════╦════════╦══════════════╣");
-    println!("║ Price  ║ ETH   ║ Total  ║ Trader   ║ Price  ║ ETH   ║ Total  ║ Trader       ║");
-    println!("╠════════╬═══════╬════════╬══════════╬════════╬═══════╬════════╬══════════════╣");
-
-    // Determine how many rows to display
-    let max_rows = std::cmp::max(bids.len(), asks.len());
-
-    // Print the depth chart rows
-    for i in 0..max_rows {
-        let bid_info = if i < bids.len() {
-            format!(
-                "║ {:<6.2} ║ {:<5.2} ║ {:<6.2} ║ {:<8} ",
-                bid_prices[i], bid_volumes[i], bid_cumulative[i], bid_traders[i]
-            )
-        } else {
-            "║        ║       ║        ║          ".to_string()
-        };
-
-        let ask_info = if i < asks.len() {
-            format!(
-                "║ {:<6.2} ║ {:<5.2} ║ {:<6.2} ║ {:<12} ║",
-                ask_prices[i], ask_volumes[i], ask_cumulative[i], ask_traders[i]
-            )
-        } else {
-            "║        ║       ║        ║            ║".to_string()
-        };
-
-        println!("{}{}", bid_info, ask_info);
-    }
-
-    println!("╚════════╩═══════╩════════╩══════════╩════════╩═══════╩════════╩══════════════╝");
-
-    // Create a visual representation of the depth chart
-    println!("\n╔══════════════════════════════════════════════════════════╗");
-    println!("║                 VISUAL DEPTH CHART                       ║");
-    println!("╚══════════════════════════════════════════════════════════╝");
-
-    // Define chart dimensions
-    let chart_width = 60;
-    let chart_height = 20;
-
-    // Create price range
-    let min_price = if !bid_prices.is_empty() && !ask_prices.is_empty() {
-        f64::min(
-            *bid_prices.last().unwrap_or(&0.0),
-            *ask_prices.first().unwrap_or(&0.0),
-        )
-    } else if !bid_prices.is_empty() {
-        *bid_prices.last().unwrap_or(&0.0)
-    } else if !ask_prices.is_empty() {
-        *ask_prices.first().unwrap_or(&0.0)
-    } else {
-        0.0
-    };
-
-    let max_price = if !bid_prices.is_empty() && !ask_prices.is_empty() {
-        f64::max(
-            *bid_prices.first().unwrap_or(&0.0),
-            *ask_prices.last().unwrap_or(&0.0),
-        )
-    } else if !bid_prices.is_empty() {
-        *bid_prices.first().unwrap_or(&0.0)
-    } else if !ask_prices.is_empty() {
-        *ask_prices.last().unwrap_or(&0.0)
-    } else {
-        0.0
-    };
-
-    // Add some padding to the price range
-    let price_range = max_price - min_price;
-    let min_price = min_price - (price_range * 0.05);
-    let max_price = max_price + (price_range * 0.05);
-
-    // Create a 2D grid for the chart
-    let mut chart = vec![vec![' '; chart_width]; chart_height];
-
-    // Draw the axes
-    for y in 0..chart_height {
-        chart[y][0] = '│';
-    }
-    for x in 0..chart_width {
-        chart[chart_height - 1][x] = '─';
-    }
-    chart[chart_height - 1][0] = '└';
-
-    // Draw the bid side (cumulative volume)
-    if !bid_cumulative.is_empty() {
-        for i in 0..bid_prices.len() {
-            let price_pos = ((bid_prices[i] - min_price) / (max_price - min_price)
-                * (chart_width as f64 - 1.0)) as usize;
-            let vol_pos = chart_height
-                - 1
-                - ((bid_cumulative[i] / max_cumulative) * (chart_height as f64 - 1.0)) as usize;
-            if price_pos < chart_width && vol_pos < chart_height {
-                chart[vol_pos][price_pos] = '█';
-            }
-        }
-    }
-
-    // Draw the ask side (cumulative volume)
-    if !ask_cumulative.is_empty() {
-        for i in 0..ask_prices.len() {
-            let price_pos = ((ask_prices[i] - min_price) / (max_price - min_price)
-                * (chart_width as f64 - 1.0)) as usize;
-            let vol_pos = chart_height
-                - 1
-                - ((ask_cumulative[i] / max_cumulative) * (chart_height as f64 - 1.0)) as usize;
-            if price_pos < chart_width && vol_pos < chart_height {
-                chart[vol_pos][price_pos] = '█';
-            }
-        }
-    }
-
-    // Print the chart
-    println!("  Volume");
-    for y in 0..chart_height {
-        print!(
-            "{:>8} ",
-            if y == 0 {
-                format!("{:.1}", max_cumulative)
-            } else if y == chart_height - 1 {
-                "0.0".to_string()
-            } else if y == chart_height / 2 {
-                format!("{:.1}", max_cumulative / 2.0)
-            } else {
-                "".to_string()
-            }
-        );
-
-        for x in 0..chart_width {
-            print!("{}", chart[y][x]);
-        }
-        println!();
-    }
-
-    // Print the price axis
-    print!("         ");
-    let mut x = 0;
-    while x < chart_width {
-        if x == 0 || x == chart_width - 1 || x == chart_width / 2 {
-            let price = min_price + (x as f64 / (chart_width - 1) as f64) * (max_price - min_price);
-            print!("{:.0}", price);
-            x += 4; // Skip a few positions to avoid overlap
-        } else if x % 10 == 0 {
-            print!("│");
-            x += 1;
-        } else {
-            print!(" ");
-            x += 1;
-        }
-    }
-    println!("\n         Price (USDC per ETH)");
-
-    // Print order details by trader
-    println!("\n╔══════════════════════════════════════════════════════════╗");
-    println!("║                   ORDERS BY TRADER                       ║");
-    println!("╚══════════════════════════════════════════════════════════╝");
-
-    // Collect orders by trader
-    let mut alice_orders = Vec::new();
-    let mut bob_orders = Vec::new();
-    let mut carol_orders = Vec::new();
-
-    for note in &swap_notes {
-        if let Ok((offered, requested)) = decompose_swapp_note(note) {
-            let creator_id = creator_of(note);
-            let is_bid = offered.faucet_id() == faucet_usdc.id();
-
-            // Calculate price and ETH amount consistently
-            let usdc_amount = if is_bid {
-                offered.amount() as f64
-            } else {
-                requested.amount() as f64
-            };
-
-            let eth_amount = if is_bid {
-                requested.amount() as f64
-            } else {
-                offered.amount() as f64
-            };
-
-            // Ensure we don't divide by zero
-            let price = if eth_amount > 0.0 {
-                usdc_amount / eth_amount
-            } else {
-                0.0 // Default to 0 if eth_amount is 0
-            };
-
-            let order_type = if is_bid { "BID" } else { "ASK" };
-
-            if creator_id == alice.id() {
-                alice_orders.push((price, eth_amount, order_type));
-            } else if creator_id == bob.id() {
-                bob_orders.push((price, eth_amount, order_type));
-            } else if creator_id == carol.id() {
-                carol_orders.push((price, eth_amount, order_type));
-            }
-        }
-    }
-
-    // Sort orders by price
-    alice_orders.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    bob_orders.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    carol_orders.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-
-    // Print Alice's orders
-    println!("\n╔══════════════════════════════════════════╗");
-    println!("║             ALICE'S ORDERS               ║");
-    println!("╠══════════╦═══════════════╦═══════════════╣");
-    println!("║   Type   ║     Price     ║   ETH Amount  ║");
-    println!("╠══════════╬═══════════════╬═══════════════╣");
-    for (price, eth_amount, order_type) in alice_orders {
-        println!(
-            "║ {:<8} ║ {:<13.2} ║ {:<13.4} ║",
-            order_type, price, eth_amount
-        );
-    }
-    println!("╚══════════╩═══════════════╩═══════════════╝");
-
-    // Print Bob's orders
-    println!("\n╔══════════════════════════════════════════╗");
-    println!("║              BOB'S ORDERS                ║");
-    println!("╠══════════╦═══════════════╦═══════════════╣");
-    println!("║   Type   ║     Price     ║   ETH Amount  ║");
-    println!("╠══════════╬═══════════════╬═══════════════╣");
-    for (price, eth_amount, order_type) in bob_orders {
-        println!(
-            "║ {:<8} ║ {:<13.2} ║ {:<13.4} ║",
-            order_type, price, eth_amount
-        );
-    }
-    println!("╚══════════╩═══════════════╩═══════════════╝");
-
-    // Print Carol's orders
-    println!("\n╔══════════════════════════════════════════╗");
-    println!("║             CAROL'S ORDERS               ║");
-    println!("╠══════════╦═══════════════╦═══════════════╣");
-    println!("║   Type   ║     Price     ║   ETH Amount  ║");
-    println!("╠══════════╬═══════════════╬═══════════════╣");
-    for (price, eth_amount, order_type) in carol_orders {
-        println!(
-            "║ {:<8} ║ {:<13.2} ║ {:<13.4} ║",
-            order_type, price, eth_amount
-        );
-    }
-    println!("╚══════════╩═══════════════╩═══════════════╝");
-
-    // Print summary statistics
-    println!("\n╔══════════════════════════════════════════════════════════╗");
-    println!("║                  ORDERBOOK STATISTICS                    ║");
-    println!("╠══════════════════════════════════╦═══════════════════════╣");
-    println!(
-        "║ Total number of orders           ║ {:<19} ║",
-        swap_notes.len()
-    );
-    println!("║ Number of bid orders             ║ {:<19} ║", bids.len());
-    println!("║ Number of ask orders             ║ {:<19} ║", asks.len());
-    println!(
-        "║ Total ETH volume (bids)          ║ {:<19.4} ║",
-        bid_cumulative.last().unwrap_or(&0.0)
-    );
-    println!(
-        "║ Total ETH volume (asks)          ║ {:<19.4} ║",
-        ask_cumulative.last().unwrap_or(&0.0)
-    );
-    println!("╚══════════════════════════════════╩═══════════════════════╝");
 
     Ok(())
 }

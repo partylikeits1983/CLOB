@@ -2,3 +2,4 @@
 /node-data
 /keystore
 *.sqlite3
+.env
