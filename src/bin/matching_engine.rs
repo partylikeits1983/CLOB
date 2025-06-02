@@ -190,7 +190,7 @@ fn print_swap_note_data(swap_note: Note) {
     let requested_id = AccountId::try_from([requested[3], requested[2]]).unwrap();
     let requested_asset = FungibleAsset::new(requested_id, requested[0].as_int()).unwrap();
 
-    println!("SWAP NOTE: {:?}", swap_note.id());
+    println!("SWAP NOTE: {:?}\n", swap_note.id());
     println!(
         "offered asset {:?} {:?}",
         offered_asset.faucet_id().to_hex(),

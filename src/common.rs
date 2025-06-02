@@ -1131,128 +1131,120 @@ pub fn try_match_swapp_notes(
     }
 
     //-----------------------------------------------------------------------
-    // 1. Make sure `note1` is the *larger* order (cannot be completely filled
-    //    by the other).  A simple heuristic works well in practice:
-    //        if maker.stock < taker.demand  -> swap.
+    // 1. Price/limit check as usual (keep your price logic here if needed)
     //-----------------------------------------------------------------------
-    let (note1, note2, offer1, want1, offer2, want2) = if offer1_raw.amount() < want2_raw.amount() {
-        // swap so that `note1` always has “more liquidity”
-        (
-            note2_in, note1_in, offer2_raw, want2_raw, offer1_raw, want1_raw,
-        )
-    } else {
-        (
-            note1_in, note2_in, offer1_raw, want1_raw, offer2_raw, want2_raw,
-        )
-    };
-
-    //-----------------------------------------------------------------------
-    // 2. Limit-price check (taker_price ≥ maker_price?)
-    //-----------------------------------------------------------------------
-    let maker_num = want1.amount(); // quote
-    let maker_den = offer1.amount(); // base
-    let taker_num = offer2.amount(); // quote
-    let taker_den = want2.amount(); // base
+    let maker_num = want1_raw.amount(); // quote
+    let maker_den = offer1_raw.amount(); // base
+    let taker_num = offer2_raw.amount(); // quote
+    let taker_den = want2_raw.amount(); // base
 
     if (taker_num as u128) * (maker_den as u128) < (maker_num as u128) * (taker_den as u128) {
         return Ok(None); // prices do not cross
     }
 
     //-----------------------------------------------------------------------
-    // 3. Decide **only** how many quote tokens the taker will pay.
-    //    Everything else comes from `compute_partial_swapp`.
+    // 2. Calculate the actual fillable amount for the swap
     //-----------------------------------------------------------------------
-    let max_by_supply = offer2.amount(); // what taker *has*
-    let max_by_maker = want1.amount(); // what maker *asks*
-    let max_by_demand =
-        (want2.amount() as u128 * want1.amount() as u128 / offer1.amount() as u128) as u64; // taker must not
-    // receive > want2
-    let fill_quote = max_by_supply.min(max_by_maker).min(max_by_demand);
-    if fill_quote == 0 {
+    // This is the *maximum* that can be matched, i.e., the smallest mutually satisfiable amount.
+    let fill_amount = offer1_raw
+        .amount()
+        .min(want1_raw.amount())
+        .min(offer2_raw.amount())
+        .min(want2_raw.amount());
+
+    if fill_amount == 0 {
         return Ok(None);
     }
 
-    // Single source of truth for the rest
-    let (fill_base, leftover_base, leftover_quote) =
-        compute_partial_swapp(offer1.amount(), want1.amount(), fill_quote);
+    // Figure out which is the maker/taker (for leftovers, but not for note args)
+    let (maker, taker, maker_offer, maker_want, taker_offer, taker_want) =
+        if offer1_raw.amount() >= fill_amount && want1_raw.amount() >= fill_amount {
+            (
+                note1_in, note2_in, offer1_raw, want1_raw, offer2_raw, want2_raw,
+            )
+        } else {
+            (
+                note2_in, note1_in, offer2_raw, want2_raw, offer1_raw, want1_raw,
+            )
+        };
 
-    debug_assert!(fill_base > 0);
-    debug_assert!(leftover_base + fill_base == offer1.amount());
-    debug_assert!(leftover_quote + fill_quote == want1.amount());
+    //-----------------------------------------------------------------------
+    // 3. Compute leftovers for partially filled note (the maker)
+    //-----------------------------------------------------------------------
+    let leftover_base = maker_offer.amount() - fill_amount;
+    let leftover_quote = maker_want.amount() - fill_amount;
 
     //-----------------------------------------------------------------------
     // 4. Build the two P2ID notes (matcher ↔ users)
     //-----------------------------------------------------------------------
-    let maker_id = creator_of(note1);
-    let taker_id = creator_of(note2);
+    let maker_id = creator_of(maker);
+    let taker_id = creator_of(taker);
 
-    let asset_base = FungibleAsset::new(offer1.faucet_id(), fill_base)
+    let asset_base = FungibleAsset::new(maker_offer.faucet_id(), fill_amount)
         .unwrap()
         .into();
-    let asset_quote = FungibleAsset::new(want1.faucet_id(), fill_quote)
+    let asset_quote = FungibleAsset::new(maker_want.faucet_id(), fill_amount)
         .unwrap()
         .into();
 
-    // serial-numbers (swap-count sits in limb-8 of the inputs)
-    let note1_swap_cnt = note1.inputs().values()[8].as_int();
-    let note2_swap_cnt = note2.inputs().values()[8].as_int();
+    let maker_swap_cnt = maker.inputs().values()[8].as_int();
+    let taker_swap_cnt = taker.inputs().values()[8].as_int();
 
-    let p2id_1_sn = get_p2id_serial_num(note1.serial_num(), note1_swap_cnt + 1);
-    let p2id_2_sn = get_p2id_serial_num(note2.serial_num(), note2_swap_cnt + 1);
+    let maker_sn = get_p2id_serial_num(maker.serial_num(), maker_swap_cnt + 1);
+    let taker_sn = get_p2id_serial_num(taker.serial_num(), taker_swap_cnt + 1);
 
-    let p2id_from_1_to_2 = create_p2id_note(
+    let p2id_from_maker_to_taker = create_p2id_note(
         matcher,
         maker_id,
         vec![asset_quote],
         NoteType::Public,
         Felt::new(0),
-        p2id_1_sn,
+        maker_sn,
     )
     .unwrap();
 
-    let p2id_from_2_to_1 = create_p2id_note(
+    let p2id_from_taker_to_maker = create_p2id_note(
         matcher,
         taker_id,
         vec![asset_base],
         NoteType::Public,
         Felt::new(0),
-        p2id_2_sn,
+        taker_sn,
     )
     .unwrap();
 
     //-----------------------------------------------------------------------
-    // 5. Note-arguments
+    // 5. Note-arguments: amount consumed from each note in this match
     //-----------------------------------------------------------------------
     let note1_args = [
         Felt::new(0),
         Felt::new(0),
         Felt::new(0),
-        Felt::new(fill_quote),
+        Felt::new(taker_offer.amount()),
     ];
     let note2_args = [
         Felt::new(0),
         Felt::new(0),
         Felt::new(0),
-        Felt::new(fill_base),
+        Felt::new(taker_want.amount()),
     ];
 
     //-----------------------------------------------------------------------
-    // 6. Possible leftover part of the *maker* (note 1)
+    // 6. Possible leftover part of the *maker*
     //-----------------------------------------------------------------------
     let leftover_swapp_note = if leftover_base > 0 {
-        // bump {serial_num, swap_cnt} exactly like the partial-consume circuit
-        let mut sn = note1.serial_num();
+        let mut sn = maker.serial_num();
         sn[3] = Felt::new(sn[3].as_int() + 1);
-        let swap_cnt = note1_swap_cnt + 1;
+        let swap_cnt = maker_swap_cnt + 1;
 
         Some(
             create_partial_swap_note(
                 maker_id,
-                matcher, // last counter-party is the matcher
-                FungibleAsset::new(offer1.faucet_id(), leftover_base)
+                matcher,
+                FungibleAsset::new(maker_offer.faucet_id(), leftover_base)
                     .unwrap()
                     .into(),
-                FungibleAsset::new(want1.faucet_id(), leftover_quote)
+                FungibleAsset::new(maker_want.faucet_id(), leftover_quote)
                     .unwrap()
                     .into(),
                 sn,
@@ -1268,8 +1260,8 @@ pub fn try_match_swapp_notes(
     // 7. All done
     //-----------------------------------------------------------------------
     Ok(Some(MatchedSwap {
-        p2id_from_1_to_2,
-        p2id_from_2_to_1,
+        p2id_from_1_to_2: p2id_from_maker_to_taker,
+        p2id_from_2_to_1: p2id_from_taker_to_maker,
         leftover_swapp_note,
         note1_args,
         note2_args,
