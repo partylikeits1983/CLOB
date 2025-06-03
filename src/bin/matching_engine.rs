@@ -8,9 +8,11 @@ use tracing::{error, info, warn};
 use miden_client::{account::AccountId, asset::FungibleAsset, note::Note, rpc::Endpoint};
 use miden_clob::{
     common::{instantiate_client, try_match_swapp_notes_new},
-    database::{Database, SwapNoteStatus},
-    note_serialization::deserialize_note,
+    database::{Database, SwapNoteStatus, SwapNoteRecord},
+    note_serialization::{deserialize_note, serialize_note, extract_note_info},
 };
+use chrono::Utc;
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -130,26 +132,14 @@ async fn run_matching_cycle(
                         &swap_data,
                         matcher_id,
                         endpoint.clone(),
+                        db,
+                        record1,
+                        record2,
                     )
                     .await
                     {
                         Ok(tx_id) => {
                             info!("✅ Blockchain transaction executed: {}", tx_id);
-
-                            // Update database to mark orders as filled
-                            if let Err(e) = db
-                                .update_swap_note_status(&record1.note_id, SwapNoteStatus::Filled)
-                                .await
-                            {
-                                error!("Failed to update order1 status: {}", e);
-                            }
-                            if let Err(e) = db
-                                .update_swap_note_status(&record2.note_id, SwapNoteStatus::Filled)
-                                .await
-                            {
-                                error!("Failed to update order2 status: {}", e);
-                            }
-
                             matches_executed += 1;
                             info!("🎯 Match #{} completed successfully", matches_executed);
 
@@ -209,6 +199,9 @@ async fn execute_blockchain_match(
     swap_data: &miden_clob::common::MatchedSwap,
     matcher_id: AccountId,
     endpoint: Endpoint,
+    db: &Database,
+    record1: &miden_clob::database::SwapNoteRecord,
+    record2: &miden_clob::database::SwapNoteRecord,
 ) -> Result<String> {
     info!(
         "Executing blockchain transaction for match between {} and {}",
@@ -278,6 +271,102 @@ async fn execute_blockchain_match(
         "🚀 Successfully executed blockchain transaction: {}",
         tx_id_hex
     );
+
+    // Update database based on whether there's a partial fill
+    if let Some(ref leftover_note) = swap_data.leftover_swapp_note {
+        info!("📝 Processing partial fill - adding leftover note to database");
+        
+        // Determine which note was partially filled by comparing with the leftover note creator
+        let leftover_creator = miden_clob::common::creator_of(leftover_note);
+        let note1_creator = miden_clob::common::creator_of(note1);
+        let note2_creator = miden_clob::common::creator_of(note2);
+        
+        let (partially_filled_record, fully_filled_record) = if leftover_creator == note1_creator {
+            (record1, record2)
+        } else {
+            (record2, record1)
+        };
+        
+        // Mark the fully filled order as Filled
+        if let Err(e) = db
+            .update_swap_note_status(&fully_filled_record.note_id, SwapNoteStatus::Filled)
+            .await
+        {
+            error!("Failed to update fully filled order status: {}", e);
+        } else {
+            info!("✅ Marked order {} as Filled", fully_filled_record.note_id);
+        }
+        
+        // Mark the partially filled order as PartiallyFilled
+        if let Err(e) = db
+            .update_swap_note_status(&partially_filled_record.note_id, SwapNoteStatus::PartiallyFilled)
+            .await
+        {
+            error!("Failed to update partially filled order status: {}", e);
+        } else {
+            info!("✅ Marked order {} as PartiallyFilled", partially_filled_record.note_id);
+        }
+        
+        // Serialize and extract info from the leftover note
+        match serialize_note(leftover_note) {
+            Ok(serialized_note) => {
+                match extract_note_info(leftover_note) {
+                    Ok((creator_id, offered_asset_id, offered_amount, requested_asset_id, requested_amount, price, is_bid)) => {
+                        // Create new database record for the leftover note
+                        let leftover_record = SwapNoteRecord {
+                            id: Uuid::new_v4().to_string(),
+                            note_id: leftover_note.id().to_hex(),
+                            creator_id,
+                            offered_asset_id,
+                            offered_amount,
+                            requested_asset_id,
+                            requested_amount,
+                            price,
+                            is_bid,
+                            note_data: serialized_note,
+                            status: SwapNoteStatus::Open,
+                            created_at: Utc::now(),
+                            updated_at: Utc::now(),
+                        };
+                        
+                        // Insert the leftover note as a new open order
+                        if let Err(e) = db.insert_swap_note(&leftover_record).await {
+                            error!("Failed to insert leftover note into database: {}", e);
+                        } else {
+                            info!("✅ Added leftover note {} back to order book", leftover_note.id().to_hex());
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to extract info from leftover note: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to serialize leftover note: {}", e);
+            }
+        }
+    } else {
+        info!("📝 Processing complete fill - both orders fully matched");
+        
+        // Both orders are completely filled
+        if let Err(e) = db
+            .update_swap_note_status(&record1.note_id, SwapNoteStatus::Filled)
+            .await
+        {
+            error!("Failed to update order1 status: {}", e);
+        } else {
+            info!("✅ Marked order {} as Filled", record1.note_id);
+        }
+        
+        if let Err(e) = db
+            .update_swap_note_status(&record2.note_id, SwapNoteStatus::Filled)
+            .await
+        {
+            error!("Failed to update order2 status: {}", e);
+        } else {
+            info!("✅ Marked order {} as Filled", record2.note_id);
+        }
+    }
 
     Ok(tx_id_hex)
 }
