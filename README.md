@@ -1,5 +1,11 @@
 # Miden CLOB
 
+## Running the demo:
+```
+./run_demo.sh
+```
+
+
 Running tests:
 ```
 cargo test --release -- --test-threads=1
