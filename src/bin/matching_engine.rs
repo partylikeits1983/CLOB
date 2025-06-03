@@ -7,7 +7,7 @@ use tracing::{error, info, warn};
 
 use miden_client::{account::AccountId, asset::FungibleAsset, note::Note, rpc::Endpoint};
 use miden_clob::{
-    common::{instantiate_client, try_match_swapp_notes},
+    common::{instantiate_client, try_match_swapp_notes_new},
     database::{Database, SwapNoteStatus},
     note_serialization::deserialize_note,
 };
@@ -115,7 +115,7 @@ async fn run_matching_cycle(
             let (record2, note2) = &notes_with_records[j];
 
             // Use try_match_swapp_notes to check if these notes can be matched
-            match try_match_swapp_notes(note1, note2, matcher_id) {
+            match try_match_swapp_notes_new(note1, note2, matcher_id) {
                 Ok(Some(swap_data)) => {
                     info!("Found match: {} <-> {}", record1.note_id, record2.note_id);
 

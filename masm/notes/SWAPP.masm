@@ -438,6 +438,8 @@ proc.execute_SWAPp
     exec.get_p2id_serial_num
     # => [P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH]
 
+    push.771 debug.stack drop
+
     exec.build_p2id_recipient_hash
     # => [P2ID_RECIPIENT]
 
@@ -454,6 +456,8 @@ proc.execute_SWAPp
     # => [tag, aux, public_note, execution_hint_always, P2ID_RECIPIENT]
     # => [tag, aux, note_type, execution_hint, RECIPIENT]
 
+    push.8881 debug.stack drop
+
     call.wallet::create_note
     # => [note_idx, pad(15) ...]
 
@@ -462,6 +466,8 @@ proc.execute_SWAPp
     mem_load.TOKEN_B_ID_SUFFIX
     mem_load.TOKEN_B_ID_PREFIX
     # => [ASSET, note_idx]
+
+    push.505 debug.stack drop
 
     call.wallet::move_asset_to_note
     # => [ASSET, note_idx, pad(11)]
@@ -490,6 +496,8 @@ proc.execute_SWAPp
         mem_load.TOKEN_B_ID_SUFFIX
         mem_load.TOKEN_B_ID_PREFIX
         # => [REQUESTED_ASSET_REMAINING]
+
+        push.333 debug.stack drop
 
         # overwrite memory!
         mem_storew.REQUESTED_ASSET_WORD_INPUT dropw
@@ -537,6 +545,8 @@ proc.execute_SWAPp
         # => [payback_tag, aux, note_type, SWAPp_RECIPIENT]
         # => [tag, aux, note_type, execution_hint, RECIPIENT]
 
+        push.888 debug.stack drop
+
         # SWAPp' creation
         call.wallet::create_note
         # => [note_idx, pad(15) ...]
@@ -546,6 +556,8 @@ proc.execute_SWAPp
 
         mem_loadw.NEW_ASSET_A
         # => [ASSET, note_idx, pad(15) ...]
+
+        push.444 debug.stack drop
 
         call.wallet::move_asset_to_note
         # => [ASSET, note_idx, pad(11)]

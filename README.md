@@ -7,6 +7,6 @@ cargo test --release -- --test-threads=1
 
 
 ```
-cargo test --release  realistic_usdc_eth_orderbook_match -- --exact --nocapture
+cargo test --release  swap_note_edge_case_test -- --exact --nocapture
 ```
 

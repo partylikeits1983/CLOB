@@ -20,7 +20,7 @@ use miden_clob::{
         delete_keystore_and_store, get_p2id_serial_num, get_swapp_note, instantiate_client,
         setup_accounts_and_faucets, try_match_swapp_notes, wait_for_note,
     },
-    create_order_simple,
+    create_order_simple, try_match_swapp_notes_new,
 };
 
 #[tokio::test]
@@ -556,7 +556,7 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     println!("trader_1: {:?}", trader_1.id().to_hex());
     println!("trader_2: {:?}", trader_2.id().to_hex());
     // ────────────────────────────────────────────────────────────
-    // 2.  Trader-1: “sell 50 A for 50 B” (maker)
+    // 2.  Trader-1:
     // ────────────────────────────────────────────────────────────
     let swap_note_1 = create_order_simple(
         &mut client,
@@ -568,7 +568,7 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     .unwrap();
 
     // ────────────────────────────────────────────────────────────
-    // 3.  Trader-2: “sell 25 B for 25 A” (taker)
+    // 3.  Trader-2:
     // ────────────────────────────────────────────────────────────
     let swap_note_2 = create_order_simple(
         &mut client,
@@ -588,7 +588,7 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     // ────────────────────────────────────────────────────────────
     // 5.  Off-chain matcher tries to cross the two orders
     // ────────────────────────────────────────────────────────────
-    let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher.id())
+    let swap_data = try_match_swapp_notes_new(&swap_note_1, &swap_note_2, matcher.id())
         .unwrap()
         .expect("orders did not cross – test set-up is wrong");
 
@@ -610,8 +610,8 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
 
     let consume_req = TransactionRequestBuilder::new()
         .with_authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args)), // maker’s SWAPP note
-            (swap_note_2.id(), Some(swap_data.note2_args)), // taker’s SWAPP note
+            (swap_data.swap_note_1.id(), Some(swap_data.note1_args)), // maker’s SWAPP note
+            (swap_data.swap_note_2.id(), Some(swap_data.note2_args)), // taker’s SWAPP note
         ])
         .with_expected_output_notes(expected_outputs)
         .build()
