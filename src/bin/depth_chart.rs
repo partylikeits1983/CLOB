@@ -1,9 +1,13 @@
+use chrono::{Local, Utc};
 use miden_client::{Felt, account::AccountId};
 use miden_clob::{
     common::generate_depth_chart, database::Database, note_serialization::deserialize_note,
 };
 use std::env;
-use tokio;
+use tokio::{
+    self,
+    time::{Duration, sleep},
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,15 +26,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url = "sqlite:./clob.sqlite3";
     let database = Database::new(database_url).await?;
 
-    println!("🔍 Fetching open orders from database...\n");
+    println!("🚀 Starting Real-Time Depth Chart Monitor");
+    println!("📊 Refreshing every 2 seconds... Press Ctrl+C to exit\n");
 
+    // Main loop for real-time updates
+    loop {
+        // Clear the terminal screen
+        print!("\x1B[2J\x1B[1;1H");
+
+        // Display header with timestamp
+        let now = Local::now();
+        println!(
+            "╔══════════════════════════════════════════════════════════════════════════════════════════════════════════╗"
+        );
+        println!(
+            "║                                    MIDEN CLOB - REAL-TIME DEPTH CHART                                   ║"
+        );
+        println!(
+            "║                                   Last Updated: {}                                   ║",
+            now.format("%Y-%m-%d %H:%M:%S")
+        );
+        println!(
+            "╚══════════════════════════════════════════════════════════════════════════════════════════════════════════╝"
+        );
+        println!();
+
+        match display_depth_chart(&database, &usdc_faucet, &eth_faucet).await {
+            Ok(order_count) => {
+                if order_count == 0 {
+                    println!("📭 No open orders found in the database.");
+                    println!("💡 Run the populate script first: cargo run --bin populate");
+                } else {
+                    println!("\n💡 Tips:");
+                    println!("   • Run matching engine: cargo run --bin matching_engine");
+                    println!("   • Add more orders: cargo run --bin populate");
+                    println!("   • Press Ctrl+C to exit this monitor");
+                }
+            }
+            Err(e) => {
+                println!("❌ Error fetching data: {}", e);
+                println!("🔄 Will retry in 2 seconds...");
+            }
+        }
+
+        println!("\n🔄 Refreshing in 2 seconds...");
+
+        // Wait 2 seconds before next update
+        sleep(Duration::from_secs(2)).await;
+    }
+}
+
+async fn display_depth_chart(
+    database: &Database,
+    usdc_faucet: &AccountId,
+    eth_faucet: &AccountId,
+) -> Result<usize, Box<dyn std::error::Error>> {
     // Get all open swap notes from database
     let open_orders = database.get_open_swap_notes().await?;
 
     if open_orders.is_empty() {
-        println!("📭 No open orders found in the database.");
-        println!("💡 Run the populate script first: cargo run --bin populate");
-        return Ok(());
+        return Ok(0);
     }
 
     println!("📊 Found {} open orders\n", open_orders.len());
@@ -58,7 +113,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for order in &open_orders {
         // Deserialize the note from base64
-        let note = deserialize_note(&order.note_data)?;
+        let note = match deserialize_note(&order.note_data) {
+            Ok(note) => note,
+            Err(e) => {
+                println!("⚠️  Failed to deserialize note {}: {}", order.note_id, e);
+                continue;
+            }
+        };
 
         // Extract offered and requested assets from the note
         let offered_asset = note
@@ -78,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let requested_amount = requested_asset_word[0].as_int();
 
         // Determine order type (bid or ask)
-        let order_type = if offered_asset.faucet_id() == usdc_faucet {
+        let order_type = if offered_asset.faucet_id() == *usdc_faucet {
             "BID (Buy)"
         } else {
             "ASK (Sell)"
@@ -100,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             format!(
                 "{} {}",
                 offered_asset.amount(),
-                if offered_asset.faucet_id() == usdc_faucet {
+                if offered_asset.faucet_id() == *usdc_faucet {
                     "USDC"
                 } else {
                     "ETH"
@@ -109,7 +170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             format!(
                 "{} {}",
                 requested_amount,
-                if requested_asset_id == usdc_faucet {
+                if requested_asset_id == *usdc_faucet {
                     "USDC"
                 } else {
                     "ETH"
@@ -133,12 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     // Generate and display the depth chart
-    generate_depth_chart(&swap_notes, &usdc_faucet, &eth_faucet, &account_name_refs);
+    generate_depth_chart(&swap_notes, usdc_faucet, eth_faucet, &account_name_refs);
 
-    println!("\n💡 Tips:");
-    println!("   • Run matching engine: cargo run --bin orderbook");
-    println!("   • Add more orders: cargo run --bin populate");
-    println!("   • View this chart again: cargo run --bin depth_chart");
-
-    Ok(())
+    Ok(open_orders.len())
 }

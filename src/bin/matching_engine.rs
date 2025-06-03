@@ -5,13 +5,13 @@ use std::{env, time::Duration};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
+use chrono::Utc;
 use miden_client::{account::AccountId, asset::FungibleAsset, note::Note, rpc::Endpoint};
 use miden_clob::{
     common::{instantiate_client, try_match_swapp_notes_new},
-    database::{Database, SwapNoteStatus, SwapNoteRecord},
-    note_serialization::{deserialize_note, serialize_note, extract_note_info},
+    database::{Database, SwapNoteRecord, SwapNoteStatus},
+    note_serialization::{deserialize_note, extract_note_info, serialize_note},
 };
-use chrono::Utc;
 use uuid::Uuid;
 
 #[tokio::main]
@@ -84,7 +84,13 @@ async fn run_matching_cycle(
     endpoint: Endpoint,
 ) -> Result<usize> {
     // Get all open orders from database
-    let open_orders = db.get_open_swap_notes().await?;
+    let open_orders = match db.get_open_swap_notes().await {
+        Ok(orders) => orders,
+        Err(e) => {
+            error!("Failed to fetch open swap notes from database: {}", e);
+            return Ok(0); // Skip this cycle and continue
+        }
+    };
 
     if open_orders.len() < 2 {
         return Ok(0);
@@ -98,7 +104,10 @@ async fn run_matching_cycle(
                 notes_with_records.push((record, note));
             }
             Err(e) => {
-                warn!("Failed to deserialize note {}: {}", record.note_id, e);
+                warn!(
+                    "Failed to deserialize note {}: {} - skipping this note",
+                    record.note_id, e
+                );
                 continue;
             }
         }
@@ -125,7 +134,7 @@ async fn run_matching_cycle(
                     print_swap_note_data(note2.clone());
                     println!("\nswap data: {:?} \n", swap_data);
 
-                    // Execute the blockchain transaction
+                    // Execute the blockchain transaction with enhanced error handling
                     match execute_blockchain_match(
                         note1,
                         note2,
@@ -147,16 +156,42 @@ async fn run_matching_cycle(
                             return Ok(matches_executed);
                         }
                         Err(e) => {
-                            error!("❌ Failed to execute blockchain transaction: {}", e);
+                            error!(
+                                "❌ Failed to execute blockchain transaction for match {} <-> {}: {} - tracking failure and skipping to next potential match",
+                                record1.note_id, record2.note_id, e
+                            );
+
+                            // Track failures for both notes involved in the failed match
+                            if let Err(db_err) =
+                                handle_match_failure(db, &record1.note_id, &e.to_string()).await
+                            {
+                                error!(
+                                    "Failed to track failure for note {}: {}",
+                                    record1.note_id, db_err
+                                );
+                            }
+                            if let Err(db_err) =
+                                handle_match_failure(db, &record2.note_id, &e.to_string()).await
+                            {
+                                error!(
+                                    "Failed to track failure for note {}: {}",
+                                    record2.note_id, db_err
+                                );
+                            }
+
+                            // Continue to next potential match instead of failing the entire cycle
                             continue;
                         }
                     }
                 }
                 Ok(None) => {
-                    // No match found, continue
+                    // No match found, continue to next pair
                 }
                 Err(e) => {
-                    warn!("Error checking match potential: {}", e);
+                    warn!(
+                        "Error checking match potential between {} and {}: {} - skipping this pair",
+                        record1.note_id, record2.note_id, e
+                    );
                     continue;
                 }
             }
@@ -209,7 +244,12 @@ async fn execute_blockchain_match(
         note2.id().to_hex()
     );
 
-    let mut client = instantiate_client(endpoint).await?;
+    let mut client = match instantiate_client(endpoint).await {
+        Ok(client) => client,
+        Err(e) => {
+            return Err(anyhow::anyhow!("Failed to instantiate client: {}", e));
+        }
+    };
 
     // Import the matcher account to ensure it exists in the client state
     info!("Importing matcher account: {}", matcher_id.to_hex());
@@ -220,7 +260,10 @@ async fn execute_blockchain_match(
         );
     }
 
-    client.sync_state().await.unwrap();
+    // Sync state with better error handling
+    if let Err(e) = client.sync_state().await {
+        return Err(anyhow::anyhow!("Failed to sync client state: {}", e));
+    }
 
     // Construct expected output notes (P2ID notes + leftover note if any)
     let mut expected_outputs = vec![
@@ -275,18 +318,18 @@ async fn execute_blockchain_match(
     // Update database based on whether there's a partial fill
     if let Some(ref leftover_note) = swap_data.leftover_swapp_note {
         info!("📝 Processing partial fill - adding leftover note to database");
-        
+
         // Determine which note was partially filled by comparing with the leftover note creator
         let leftover_creator = miden_clob::common::creator_of(leftover_note);
         let note1_creator = miden_clob::common::creator_of(note1);
-        let note2_creator = miden_clob::common::creator_of(note2);
-        
+        let _note2_creator = miden_clob::common::creator_of(note2);
+
         let (partially_filled_record, fully_filled_record) = if leftover_creator == note1_creator {
             (record1, record2)
         } else {
             (record2, record1)
         };
-        
+
         // Mark the fully filled order as Filled
         if let Err(e) = db
             .update_swap_note_status(&fully_filled_record.note_id, SwapNoteStatus::Filled)
@@ -296,22 +339,36 @@ async fn execute_blockchain_match(
         } else {
             info!("✅ Marked order {} as Filled", fully_filled_record.note_id);
         }
-        
+
         // Mark the partially filled order as PartiallyFilled
         if let Err(e) = db
-            .update_swap_note_status(&partially_filled_record.note_id, SwapNoteStatus::PartiallyFilled)
+            .update_swap_note_status(
+                &partially_filled_record.note_id,
+                SwapNoteStatus::PartiallyFilled,
+            )
             .await
         {
             error!("Failed to update partially filled order status: {}", e);
         } else {
-            info!("✅ Marked order {} as PartiallyFilled", partially_filled_record.note_id);
+            info!(
+                "✅ Marked order {} as PartiallyFilled",
+                partially_filled_record.note_id
+            );
         }
-        
+
         // Serialize and extract info from the leftover note
         match serialize_note(leftover_note) {
             Ok(serialized_note) => {
                 match extract_note_info(leftover_note) {
-                    Ok((creator_id, offered_asset_id, offered_amount, requested_asset_id, requested_amount, price, is_bid)) => {
+                    Ok((
+                        creator_id,
+                        offered_asset_id,
+                        offered_amount,
+                        requested_asset_id,
+                        requested_amount,
+                        price,
+                        is_bid,
+                    )) => {
                         // Create new database record for the leftover note
                         let leftover_record = SwapNoteRecord {
                             id: Uuid::new_v4().to_string(),
@@ -325,29 +382,45 @@ async fn execute_blockchain_match(
                             is_bid,
                             note_data: serialized_note,
                             status: SwapNoteStatus::Open,
+                            failure_count: 0,
                             created_at: Utc::now(),
                             updated_at: Utc::now(),
                         };
-                        
+
                         // Insert the leftover note as a new open order
                         if let Err(e) = db.insert_swap_note(&leftover_record).await {
-                            error!("Failed to insert leftover note into database: {}", e);
+                            error!(
+                                "Failed to insert leftover note {} into database: {} - leftover note will be lost",
+                                leftover_note.id().to_hex(),
+                                e
+                            );
                         } else {
-                            info!("✅ Added leftover note {} back to order book", leftover_note.id().to_hex());
+                            info!(
+                                "✅ Added leftover note {} back to order book",
+                                leftover_note.id().to_hex()
+                            );
                         }
                     }
                     Err(e) => {
-                        error!("Failed to extract info from leftover note: {}", e);
+                        error!(
+                            "Failed to extract info from leftover note {}: {} - leftover note will be lost",
+                            leftover_note.id().to_hex(),
+                            e
+                        );
                     }
                 }
             }
             Err(e) => {
-                error!("Failed to serialize leftover note: {}", e);
+                error!(
+                    "Failed to serialize leftover note {}: {} - leftover note will be lost",
+                    leftover_note.id().to_hex(),
+                    e
+                );
             }
         }
     } else {
         info!("📝 Processing complete fill - both orders fully matched");
-        
+
         // Both orders are completely filled
         if let Err(e) = db
             .update_swap_note_status(&record1.note_id, SwapNoteStatus::Filled)
@@ -357,16 +430,61 @@ async fn execute_blockchain_match(
         } else {
             info!("✅ Marked order {} as Filled", record1.note_id);
         }
-        
+
         if let Err(e) = db
             .update_swap_note_status(&record2.note_id, SwapNoteStatus::Filled)
             .await
         {
-            error!("Failed to update order2 status: {}", e);
+            error!(
+                "Failed to update order2 status for {}: {} - continuing with transaction",
+                record2.note_id, e
+            );
         } else {
             info!("✅ Marked order {} as Filled", record2.note_id);
         }
     }
 
     Ok(tx_id_hex)
+}
+
+async fn handle_match_failure(db: &Database, note_id: &str, failure_reason: &str) -> Result<()> {
+    // Increment the failure count for this note
+    match db.increment_failure_count(note_id).await {
+        Ok(failure_count) => {
+            info!("📊 Note {} failure count: {}", note_id, failure_count);
+
+            // If failure count exceeds 3, move to failed table
+            if failure_count > 3 {
+                warn!(
+                    "🚫 Note {} has failed {} times, moving to failed orders table",
+                    note_id, failure_count
+                );
+
+                match db.move_to_failed_table(note_id, failure_reason).await {
+                    Ok(_) => {
+                        info!(
+                            "✅ Successfully moved note {} to failed orders table",
+                            note_id
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            "❌ Failed to move note {} to failed orders table: {}",
+                            note_id, e
+                        );
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error!(
+                "❌ Failed to increment failure count for note {}: {}",
+                note_id, e
+            );
+            return Err(e);
+        }
+    }
+
+    Ok(())
 }

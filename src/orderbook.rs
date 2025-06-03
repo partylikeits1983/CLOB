@@ -141,6 +141,7 @@ impl OrderBookManager {
             is_bid,
             note_data,
             status: SwapNoteStatus::Open,
+            failure_count: 0,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -447,6 +448,7 @@ impl OrderBookManager {
                 is_bid,
                 note_data: data,
                 status: SwapNoteStatus::Open,
+                failure_count: 0,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             };

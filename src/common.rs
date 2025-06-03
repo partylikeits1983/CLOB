@@ -1157,7 +1157,7 @@ pub fn try_match_swapp_notes(
         return Ok(None);
     }
 
-    let (maker, taker, maker_offer, maker_want, taker_offer, taker_want) =
+    let (maker, taker, maker_offer, maker_want, _taker_offer, taker_want) =
         if offer1_raw.amount() >= want2_raw.amount() {
             (
                 note1_in, note2_in, offer1_raw, want1_raw, offer2_raw, want2_raw,
@@ -1284,6 +1284,14 @@ pub fn try_match_swapp_notes_new(
             return Ok(None);
         }
     }
+
+    println!("##############################################\n\n");
+    let note1_swap_cnt = note1_in.inputs().values()[8].as_int();
+    let note2_swap_cnt = note2_in.inputs().values()[8].as_int();
+    println!("SWAP COUNT: {:?}", note1_swap_cnt);
+    println!("SWAP COUNT: {:?}", note2_swap_cnt);
+
+    println!("##############################################\n\n");
 
     println!("offer1_raw: {:?}", offer1_raw.amount());
     println!("want1_raw: {:?}", want1_raw.amount());

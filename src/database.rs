@@ -17,8 +17,27 @@ pub struct SwapNoteRecord {
     pub is_bid: bool,
     pub note_data: String, // Serialized note
     pub status: SwapNoteStatus,
+    pub failure_count: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FailedSwapNoteRecord {
+    pub id: String,
+    pub note_id: String,
+    pub creator_id: String,
+    pub offered_asset_id: String,
+    pub offered_amount: u64,
+    pub requested_asset_id: String,
+    pub requested_amount: u64,
+    pub price: f64,
+    pub is_bid: bool,
+    pub note_data: String, // Serialized note
+    pub failure_count: i32,
+    pub failure_reason: String,
+    pub created_at: DateTime<Utc>,
+    pub failed_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -113,6 +132,7 @@ impl Database {
                 is_bid BOOLEAN NOT NULL,
                 note_data TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'open',
+                failure_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
@@ -125,6 +145,50 @@ impl Database {
             Ok(_) => println!("✅ swap_notes table created successfully"),
             Err(e) => {
                 println!("❌ Failed to create swap_notes table: {}", e);
+                return Err(e.into());
+            }
+        }
+
+        // Add failure_count column to existing tables if it doesn't exist
+        println!("Adding failure_count column to existing swap_notes table...");
+        let _ = sqlx::query("ALTER TABLE swap_notes ADD COLUMN failure_count INTEGER DEFAULT 0")
+            .execute(&self.pool)
+            .await; // Ignore error if column already exists
+
+        // Update existing records to have failure_count = 0 if they don't have it
+        println!("Updating existing records to have failure_count = 0...");
+        let _ = sqlx::query("UPDATE swap_notes SET failure_count = 0 WHERE failure_count IS NULL")
+            .execute(&self.pool)
+            .await; // Ignore error if column doesn't exist or no records need updating
+
+        println!("Creating failed_swap_notes table...");
+        let result = sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS failed_swap_notes (
+                id TEXT PRIMARY KEY,
+                note_id TEXT UNIQUE NOT NULL,
+                creator_id TEXT NOT NULL,
+                offered_asset_id TEXT NOT NULL,
+                offered_amount INTEGER NOT NULL,
+                requested_asset_id TEXT NOT NULL,
+                requested_amount INTEGER NOT NULL,
+                price REAL NOT NULL,
+                is_bid BOOLEAN NOT NULL,
+                note_data TEXT NOT NULL,
+                failure_count INTEGER NOT NULL,
+                failure_reason TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                failed_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await;
+
+        match result {
+            Ok(_) => println!("✅ failed_swap_notes table created successfully"),
+            Err(e) => {
+                println!("❌ Failed to create failed_swap_notes table: {}", e);
                 return Err(e.into());
             }
         }
@@ -193,8 +257,8 @@ impl Database {
             INSERT INTO swap_notes (
                 id, note_id, creator_id, offered_asset_id, offered_amount,
                 requested_asset_id, requested_amount, price, is_bid,
-                note_data, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                note_data, status, failure_count, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&record.id)
@@ -208,6 +272,7 @@ impl Database {
         .bind(record.is_bid)
         .bind(&record.note_data)
         .bind(record.status.to_string())
+        .bind(record.failure_count)
         .bind(record.created_at.to_rfc3339())
         .bind(record.updated_at.to_rfc3339())
         .execute(&self.pool)
@@ -264,6 +329,7 @@ impl Database {
                 is_bid: row.get("is_bid"),
                 note_data: row.get("note_data"),
                 status: status_str.parse()?,
+                failure_count: row.try_get("failure_count").unwrap_or(0),
                 created_at: DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&Utc),
                 updated_at: DateTime::parse_from_rfc3339(&updated_at_str)?.with_timezone(&Utc),
             });
@@ -330,6 +396,7 @@ impl Database {
                 is_bid: row.get("is_bid"),
                 note_data: row.get("note_data"),
                 status: status_str.parse()?,
+                failure_count: row.try_get("failure_count").unwrap_or(0),
                 created_at: DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&Utc),
                 updated_at: DateTime::parse_from_rfc3339(&updated_at_str)?.with_timezone(&Utc),
             });
@@ -352,6 +419,7 @@ impl Database {
                 is_bid: row.get("is_bid"),
                 note_data: row.get("note_data"),
                 status: status_str.parse()?,
+                failure_count: row.try_get("failure_count").unwrap_or(0),
                 created_at: DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&Utc),
                 updated_at: DateTime::parse_from_rfc3339(&updated_at_str)?.with_timezone(&Utc),
             });
@@ -385,6 +453,7 @@ impl Database {
                 is_bid: row.get("is_bid"),
                 note_data: row.get("note_data"),
                 status: status_str.parse()?,
+                failure_count: row.try_get("failure_count").unwrap_or(0),
                 created_at: DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&Utc),
                 updated_at: DateTime::parse_from_rfc3339(&updated_at_str)?.with_timezone(&Utc),
             });
@@ -413,5 +482,91 @@ impl Database {
         let existing_ids: Vec<String> = rows.iter().map(|row| row.get("note_id")).collect();
 
         Ok(existing_ids)
+    }
+
+    pub async fn increment_failure_count(&self, note_id: &str) -> Result<i32> {
+        let result = sqlx::query(
+            "UPDATE swap_notes SET failure_count = failure_count + 1, updated_at = ? WHERE note_id = ? RETURNING failure_count"
+        )
+        .bind(Utc::now().to_rfc3339())
+        .bind(note_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(result.get("failure_count"))
+    }
+
+    pub async fn move_to_failed_table(&self, note_id: &str, failure_reason: &str) -> Result<()> {
+        // First, get the swap note record
+        let swap_note = sqlx::query("SELECT * FROM swap_notes WHERE note_id = ?")
+            .bind(note_id)
+            .fetch_one(&self.pool)
+            .await?;
+
+        // Insert into failed_swap_notes table
+        sqlx::query(
+            r#"
+            INSERT INTO failed_swap_notes (
+                id, note_id, creator_id, offered_asset_id, offered_amount,
+                requested_asset_id, requested_amount, price, is_bid,
+                note_data, failure_count, failure_reason, created_at, failed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(swap_note.get::<String, _>("id"))
+        .bind(swap_note.get::<String, _>("note_id"))
+        .bind(swap_note.get::<String, _>("creator_id"))
+        .bind(swap_note.get::<String, _>("offered_asset_id"))
+        .bind(swap_note.get::<i64, _>("offered_amount"))
+        .bind(swap_note.get::<String, _>("requested_asset_id"))
+        .bind(swap_note.get::<i64, _>("requested_amount"))
+        .bind(swap_note.get::<f64, _>("price"))
+        .bind(swap_note.get::<bool, _>("is_bid"))
+        .bind(swap_note.get::<String, _>("note_data"))
+        .bind(swap_note.try_get::<i32, _>("failure_count").unwrap_or(0))
+        .bind(failure_reason)
+        .bind(swap_note.get::<String, _>("created_at"))
+        .bind(Utc::now().to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+
+        // Remove from swap_notes table
+        sqlx::query("DELETE FROM swap_notes WHERE note_id = ?")
+            .bind(note_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_failed_swap_notes(&self) -> Result<Vec<FailedSwapNoteRecord>> {
+        let rows = sqlx::query("SELECT * FROM failed_swap_notes ORDER BY failed_at DESC")
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut records = Vec::new();
+        for row in rows {
+            let created_at_str: String = row.get("created_at");
+            let failed_at_str: String = row.get("failed_at");
+
+            records.push(FailedSwapNoteRecord {
+                id: row.get("id"),
+                note_id: row.get("note_id"),
+                creator_id: row.get("creator_id"),
+                offered_asset_id: row.get("offered_asset_id"),
+                offered_amount: row.get::<i64, _>("offered_amount") as u64,
+                requested_asset_id: row.get("requested_asset_id"),
+                requested_amount: row.get::<i64, _>("requested_amount") as u64,
+                price: row.get("price"),
+                is_bid: row.get("is_bid"),
+                note_data: row.get("note_data"),
+                failure_count: row.get("failure_count"),
+                failure_reason: row.get("failure_reason"),
+                created_at: DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&Utc),
+                failed_at: DateTime::parse_from_rfc3339(&failed_at_str)?.with_timezone(&Utc),
+            });
+        }
+
+        Ok(records)
     }
 }
