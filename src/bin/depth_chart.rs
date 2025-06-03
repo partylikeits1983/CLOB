@@ -69,10 +69,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        println!("\n🔄 Refreshing in 2 seconds...");
+        // println!("\n🔄 Refreshing in 1 seconds...");
 
         // Wait 2 seconds before next update
-        sleep(Duration::from_secs(2)).await;
+        sleep(Duration::from_secs(1)).await;
     }
 }
 
