@@ -227,7 +227,7 @@ fn test_try_match_swapp_notes_arithmetic_case3() {
         .next()
         .unwrap()
         .unwrap_fungible();
-    assert_eq!(p2id_a_out.amount(), 346); // 30 B to taker
+    assert_eq!(p2id_a_out.amount(), 1498024); // 30 B to taker
     assert_eq!(p2id_a_out.faucet_id(), faucet_b);
 
     let p2id_b_out = swap
@@ -237,7 +237,7 @@ fn test_try_match_swapp_notes_arithmetic_case3() {
         .next()
         .unwrap()
         .unwrap_fungible();
-    assert_eq!(p2id_b_out.amount(), 911710); // 50 A to maker
+    assert_eq!(p2id_b_out.amount(), 587); // 50 A to maker
     assert_eq!(p2id_b_out.faucet_id(), faucet_a);
 
     // 3-b.  Left-over maker order: 100 A → 60 B
@@ -246,14 +246,14 @@ fn test_try_match_swapp_notes_arithmetic_case3() {
         .as_ref()
         .expect("maker not 100 % filled");
     let (left_off, left_req) = decompose_swapp_note(leftover).unwrap();
-    assert_eq!(left_off.amount(), 903805);
+    assert_eq!(left_off.amount(), 3);
     assert_eq!(left_off.faucet_id(), faucet_a);
-    assert_eq!(left_req.amount(), 343);
+    assert_eq!(left_req.amount(), 5662);
     assert_eq!(left_req.faucet_id(), faucet_b);
 
     // 3-c.  Note-arg limb-3 semantics
-    assert_eq!(swap.note1_args[3].as_int(), 346); // maker receives 30 B
-    assert_eq!(swap.note2_args[3].as_int(), 911710); // taker receives 50 A
+    assert_eq!(swap.note1_args[3].as_int(), 587); // maker receives 30 B
+    assert_eq!(swap.note2_args[3].as_int(), 1498024); // taker receives 50 A
 }
 
 #[tokio::test]

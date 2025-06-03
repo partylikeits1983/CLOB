@@ -1256,6 +1256,7 @@ pub fn try_match_swapp_notes_new(
     let (offer1_raw, want1_raw) = decompose_swapp_note(note1_in)?;
     let (offer2_raw, want2_raw) = decompose_swapp_note(note2_in)?;
 
+    // must be matchable
     if offer1_raw.faucet_id() != want2_raw.faucet_id()
         || want1_raw.faucet_id() != offer2_raw.faucet_id()
     {
@@ -1267,6 +1268,22 @@ pub fn try_match_swapp_notes_new(
 
     let (amount_a_1_p2id2, new_amount_a_note2, new_amount_b_note2) =
         compute_partial_swapp(offer2_raw.amount(), want2_raw.amount(), offer1_raw.amount());
+
+    // check that matcher won't lose money matching
+    {
+        let a1: u128 = offer1_raw.amount().into();
+        let b1: u128 = want1_raw.amount().into();
+        let a2: u128 = want2_raw.amount().into();
+        let b2: u128 = offer2_raw.amount().into();
+
+        if a1
+        .checked_mul(b2)
+        .unwrap_or(0)  // on overflow, treat as “no match”
+        < b1.checked_mul(a2).unwrap_or(u128::MAX)
+        {
+            return Ok(None);
+        }
+    }
 
     println!("offer1_raw: {:?}", offer1_raw.amount());
     println!("want1_raw: {:?}", want1_raw.amount());
@@ -1412,6 +1429,7 @@ pub fn try_match_swapp_notes_new(
         Felt::new(0),
         Felt::new(offer2_raw.amount()),
     ];
+
     let note2_args = [
         Felt::new(0),
         Felt::new(0),
