@@ -8,7 +8,7 @@ use tracing::{error, info, warn};
 use chrono::Utc;
 use miden_client::{account::AccountId, asset::FungibleAsset, note::Note, rpc::Endpoint};
 use miden_clob::{
-    common::{instantiate_client, try_match_swapp_notes_new},
+    common::{instantiate_client, try_match_swapp_notes},
     database::{Database, SwapNoteRecord, SwapNoteStatus},
     note_serialization::{deserialize_note, extract_note_info, serialize_note},
 };
@@ -126,7 +126,7 @@ async fn run_matching_cycle(
             let (record2, note2) = &notes_with_records[j];
 
             // Use try_match_swapp_notes to check if these notes can be matched
-            match try_match_swapp_notes_new(note1, note2, matcher_id) {
+            match try_match_swapp_notes(note1, note2, matcher_id) {
                 Ok(Some(swap_data)) => {
                     info!("Found match: {} <-> {}", record1.note_id, record2.note_id);
 
@@ -250,6 +250,7 @@ async fn execute_blockchain_match(
             return Err(anyhow::anyhow!("Failed to instantiate client: {}", e));
         }
     };
+    client.sync_state().await.unwrap();
 
     // Import the matcher account to ensure it exists in the client state
     info!("Importing matcher account: {}", matcher_id.to_hex());

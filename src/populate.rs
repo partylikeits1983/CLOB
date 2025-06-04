@@ -14,19 +14,17 @@ use std::fs;
 use tokio::time::{Duration, sleep};
 use tracing::{error, info, warn};
 
+use crate::common::{
+    delete_keystore_and_store, instantiate_client, price_to_swap_note, setup_accounts_and_faucets,
+};
 use miden_client::{
-    Client, Felt,
+    Client,
     account::{Account, AccountId},
-    crypto::FeltRng,
     keystore::FilesystemKeyStore,
     rpc::Endpoint,
     transaction::{OutputNote, TransactionRequestBuilder},
 };
-
-use crate::common::{
-    create_partial_swap_note, creator_of, delete_keystore_and_store, instantiate_client,
-    price_to_swap_note, setup_accounts_and_faucets,
-};
+use miden_crypto::rand::FeltRng;
 
 #[derive(Debug, Deserialize)]
 struct CoinGeckoResponse {
@@ -64,7 +62,6 @@ impl Default for MarketMakerConfig {
 struct MarketMaker {
     client: Option<Client>,
     accounts: Vec<Account>,
-    faucets: Vec<Account>,
     config: MarketMakerConfig,
     server_url: String,
     http_client: reqwest::Client,
@@ -95,6 +92,8 @@ impl MarketMaker {
                 Endpoint::try_from(env::var("MIDEN_NODE_ENDPOINT").unwrap().as_str()).unwrap();
 
             let mut client = instantiate_client(endpoint).await?;
+            client.sync_state().await.unwrap();
+
             let keystore = FilesystemKeyStore::new("./keystore".into())?;
 
             // Setup accounts with balances for market making + matcher account
@@ -168,7 +167,6 @@ impl MarketMaker {
             Ok(Self {
                 client: Some(client),
                 accounts,
-                faucets,
                 config,
                 server_url,
                 http_client,
@@ -196,6 +194,7 @@ impl MarketMaker {
                 Endpoint::try_from(env::var("MIDEN_NODE_ENDPOINT").unwrap().as_str()).unwrap();
 
             let mut client = instantiate_client(endpoint).await?;
+            client.sync_state().await.unwrap();
 
             let usdc_id = AccountId::from_hex(&usdc_faucet_id)?;
             let eth_id = AccountId::from_hex(&eth_faucet_id)?;
@@ -222,7 +221,6 @@ impl MarketMaker {
             Ok(Self {
                 client: Some(client),
                 accounts: Vec::new(), // Will be loaded if needed
-                faucets: Vec::new(),  // Will be loaded if needed
                 config,
                 server_url,
                 http_client,
@@ -364,6 +362,8 @@ impl MarketMaker {
 
             // Submit the note as a transaction to the blockchain
             if let Some(ref mut client) = self.client {
+                client.sync_state().await.unwrap();
+
                 let req = TransactionRequestBuilder::new()
                     .with_own_output_notes(vec![OutputNote::Full(swap_note.clone())])
                     .build()?;
@@ -438,12 +438,13 @@ impl MarketMaker {
 
             // Submit the note as a transaction to the blockchain
             if let Some(ref mut client) = self.client {
+                client.sync_state().await.unwrap();
+
                 let req = TransactionRequestBuilder::new()
                     .with_own_output_notes(vec![OutputNote::Full(swap_note.clone())])
                     .build()?;
                 let tx = client.new_transaction(creator_account, req).await?;
                 client.submit_transaction(tx).await?;
-
                 info!(
                     "✅ Submitted ASK transaction: {:.4} ETH @ ${:.2}",
                     eth_quantity, ask_price

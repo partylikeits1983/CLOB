@@ -323,7 +323,7 @@ fn test_try_match_swapp_notes_arithmetic_case4() {
     // ────────────────────────────────────────────────────────────
     // 2. Run the matcher
     // ────────────────────────────────────────────────────────────
-    let swap = try_match_swapp_notes_new(&maker_note, &taker_note, matcher)
+    let swap = try_match_swapp_notes(&maker_note, &taker_note, matcher)
         .unwrap()
         .expect("orders should cross");
 

@@ -588,7 +588,7 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     // ────────────────────────────────────────────────────────────
     // 5.  Off-chain matcher tries to cross the two orders
     // ────────────────────────────────────────────────────────────
-    let swap_data = try_match_swapp_notes_new(&swap_note_1, &swap_note_2, matcher.id())
+    let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher.id())
         .unwrap()
         .expect("orders did not cross – test set-up is wrong");
 
