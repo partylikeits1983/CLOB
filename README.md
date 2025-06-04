@@ -1,5 +1,8 @@
 # Miden CLOB
 
+![Logo](assets/zkCLOB.png)
+
+
 ## Running the demo:
 ```
 ./run_demo.sh
