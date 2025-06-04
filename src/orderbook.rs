@@ -36,9 +36,7 @@ impl OrderBookManager {
 
     pub async fn initialize_from_database(&mut self, _db: &Database) -> Result<()> {
         info!("Initializing orderbook from database");
-        // For now, we'll skip loading the actual Note objects since deserialization
-        // is not yet implemented. In a full implementation, you would deserialize
-        // each note and add it to the open_orders HashMap.
+        // stubbed out for now
         Ok(())
     }
 
