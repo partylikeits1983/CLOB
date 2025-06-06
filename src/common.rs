@@ -31,48 +31,8 @@ use miden_client::{
     transaction::{OutputNote, TransactionKernel, TransactionRequestBuilder, TransactionScript},
 };
 use miden_lib::note::utils;
-use miden_objects::{
-    Hasher, NoteError,
-    account::{AccountComponent, StorageMap},
-    assembly::Library,
-};
+use miden_objects::{Hasher, NoteError, account::AccountComponent, assembly::Library};
 use serde::de::value::Error;
-
-// Signature verification code:
-const N: usize = 512;
-fn mul_modulo_p(a: Polynomial<Felt>, b: Polynomial<Felt>) -> [u64; 1024] {
-    let mut c = [0; 2 * N];
-    for i in 0..N {
-        for j in 0..N {
-            c[i + j] += a.coefficients[i].as_int() * b.coefficients[j].as_int();
-        }
-    }
-    c
-}
-
-fn to_elements(poly: Polynomial<Felt>) -> Vec<Felt> {
-    poly.coefficients.to_vec()
-}
-
-pub fn generate_advice_stack_from_signature(h: Polynomial<Felt>, s2: Polynomial<Felt>) -> Vec<u64> {
-    let pi = mul_modulo_p(h.clone(), s2.clone());
-
-    // lay the polynomials in order h then s2 then pi = h * s2
-    let mut polynomials = to_elements(h.clone());
-    polynomials.extend(to_elements(s2.clone()));
-    polynomials.extend(pi.iter().map(|a| Felt::new(*a)));
-
-    // get the challenge point and push it to the advice stack
-    let digest_polynomials = Hasher::hash_elements(&polynomials);
-    let challenge = (digest_polynomials[0], digest_polynomials[1]);
-    let mut advice_stack = vec![challenge.0.as_int(), challenge.1.as_int()];
-
-    // push the polynomials to the advice stack
-    let polynomials: Vec<u64> = polynomials.iter().map(|&e| e.into()).collect();
-    advice_stack.extend_from_slice(&polynomials);
-
-    advice_stack
-}
 
 pub fn create_library(
     assembler: Assembler,
@@ -138,91 +98,6 @@ pub async fn create_basic_faucet(
     Ok(account)
 }
 
-pub async fn create_signature_check_account(
-    client: &mut Client,
-) -> Result<miden_client::account::Account, ClientError> {
-    let mut init_seed = [0_u8; 32];
-    client.rng().fill_bytes(&mut init_seed);
-
-    let file_path = Path::new("./masm/accounts/account_signature_check.masm");
-    let account_code = fs::read_to_string(file_path).unwrap();
-
-    let assembler: Assembler = TransactionKernel::assembler().with_debug_mode(true);
-
-    let empty_storage_slot = StorageSlot::empty_value();
-    let storage_map = StorageMap::new();
-    let storage_slot_map = StorageSlot::Map(storage_map.clone());
-
-    let account_component = AccountComponent::compile(
-        account_code.clone(),
-        assembler.clone(),
-        vec![empty_storage_slot, storage_slot_map],
-    )
-    .unwrap()
-    .with_supports_all_types();
-
-    let anchor_block = client.get_latest_epoch_block().await.unwrap();
-    let builder = AccountBuilder::new(init_seed)
-        .anchor((&anchor_block).try_into().unwrap())
-        .account_type(AccountType::RegularAccountUpdatableCode)
-        .storage_mode(AccountStorageMode::Public)
-        .with_component(BasicWallet)
-        .with_component(account_component);
-
-    let (account, seed) = builder.build().unwrap();
-    client.add_account(&account, Some(seed), false).await?;
-
-    Ok(account)
-}
-
-pub async fn create_multisig_poc(
-    client: &mut Client,
-    authed_pub_keys: Vec<Word>,
-) -> Result<miden_client::account::Account, ClientError> {
-    let mut init_seed = [0_u8; 32];
-    client.rng().fill_bytes(&mut init_seed);
-
-    let file_path = Path::new("./masm/accounts/signature_check_loop.masm");
-    let account_code = fs::read_to_string(file_path).unwrap();
-
-    let assembler: Assembler = TransactionKernel::assembler().with_debug_mode(true);
-
-    let empty_storage_slot = StorageSlot::empty_value();
-    // Declare storage_map as mutable
-    let mut storage_map = StorageMap::new();
-
-    let true_value = [Felt::new(1), Felt::new(1), Felt::new(1), Felt::new(1)];
-
-    // Iterate over each key in the vector
-    for key in authed_pub_keys.iter() {
-        storage_map.insert(key.into(), true_value);
-    }
-
-    let storage_slot_map = StorageSlot::Map(storage_map.clone());
-
-    let account_component = AccountComponent::compile(
-        account_code.clone(),
-        assembler.clone(),
-        vec![empty_storage_slot, storage_slot_map],
-    )
-    .unwrap()
-    .with_supports_all_types();
-
-    let anchor_block = client.get_latest_epoch_block().await.unwrap();
-    // let anchor_block = client.get_epoch_block(10.into()).await.unwrap();
-    let builder = AccountBuilder::new(init_seed)
-        .anchor((&anchor_block).try_into().unwrap())
-        .account_type(AccountType::RegularAccountUpdatableCode)
-        .storage_mode(AccountStorageMode::Public)
-        // .with_component(BasicWallet)
-        .with_component(account_component);
-
-    let (account, seed) = builder.build().unwrap();
-    client.add_account(&account, Some(seed), false).await?;
-
-    Ok(account)
-}
-
 /// Creates [num_accounts] accounts, [num_faucets] faucets, and mints the given [balances].
 ///
 /// - `balances[a][f]`: how many tokens faucet `f` should mint for account `a`.
@@ -274,15 +149,9 @@ pub async fn setup_accounts_and_faucets(
 
             // Build & submit the mint transaction
             let asset = FungibleAsset::new(faucet.id(), amount).unwrap();
-            let tx_request = TransactionRequestBuilder::mint_fungible_asset(
-                asset,
-                account.id(),
-                NoteType::Public,
-                client.rng(),
-            )
-            .unwrap()
-            .build()
-            .unwrap();
+            let tx_request = TransactionRequestBuilder::new()
+                .build_mint_fungible_asset(asset, account.id(), NoteType::Public, client.rng())
+                .unwrap();
 
             let tx_exec = client.new_transaction(faucet.id(), tx_request).await?;
             client.submit_transaction(tx_exec.clone()).await?;
@@ -324,55 +193,6 @@ pub async fn setup_accounts_and_faucets(
     client.sync_state().await?;
 
     Ok((accounts, faucets))
-}
-
-pub async fn mint_from_faucet_for_matcher(
-    client: &mut Client,
-    account: &Account,
-    faucet: &Account,
-    amount: u64,
-) -> Result<(), ClientError> {
-    if amount == 0 {
-        return Ok(());
-    }
-
-    let asset = FungibleAsset::new(faucet.id(), amount).unwrap();
-    let mint_req = TransactionRequestBuilder::mint_fungible_asset(
-        asset,
-        account.id(),
-        NoteType::Public,
-        client.rng(),
-    )?
-    .build()?;
-    let mint_exec = client.new_transaction(faucet.id(), mint_req).await?;
-    client.submit_transaction(mint_exec.clone()).await?;
-
-    let minted_note = match mint_exec.created_notes().get_note(0) {
-        OutputNote::Full(note) => note.clone(),
-        _ => panic!("Expected full minted note"),
-    };
-
-    wait_for_notes(client, account, 1).await?;
-    client.sync_state().await?;
-
-    // let script_code = fs::read_to_string(Path::new("./masm/scripts/match_script.masm")).unwrap();
-    // let matcher_code =
-    //    fs::read_to_string(Path::new("./masm/accounts/two_to_one_match.masm")).unwrap();
-    // let matcher_library =
-    //    create_library_simplified(matcher_code, "external_contract::matcher_contract").unwrap();
-
-    // let tx_script = create_tx_script(script_code, Some(matcher_library)).unwrap();
-
-    let consume_req = TransactionRequestBuilder::new()
-        .with_authenticated_input_notes([(minted_note.id(), None)])
-        // .with_custom_script(tx_script)
-        .build()?;
-
-    let consume_exec = client.new_transaction(account.id(), consume_req).await?;
-    client.submit_transaction(consume_exec).await?;
-    client.sync_state().await?;
-
-    Ok(())
 }
 
 pub async fn wait_for_notes(
@@ -886,50 +706,6 @@ pub async fn create_public_immutable_contract(
     Ok((counter_contract, counter_seed))
 }
 
-// Creates public note
-pub async fn create_public_note(
-    client: &mut Client,
-    note_code: String,
-    account_library: Library,
-    creator_account: Account,
-    assets: NoteAssets,
-) -> Result<Note, Error> {
-    let assembler = TransactionKernel::assembler()
-        .with_library(&account_library)
-        .unwrap()
-        .with_debug_mode(true);
-    let rng = client.rng();
-    let serial_num = rng.draw_word();
-    let note_script = NoteScript::compile(note_code, assembler.clone()).unwrap();
-    let note_inputs = NoteInputs::new([].to_vec()).unwrap();
-    let recipient = NoteRecipient::new(serial_num, note_script, note_inputs.clone());
-    let tag = NoteTag::for_public_use_case(0, 0, NoteExecutionMode::Local).unwrap();
-    let metadata = NoteMetadata::new(
-        creator_account.id(),
-        NoteType::Public,
-        tag,
-        NoteExecutionHint::always(),
-        Felt::new(0),
-    )
-    .unwrap();
-
-    let note = Note::new(assets, metadata, recipient);
-
-    let note_req = TransactionRequestBuilder::new()
-        .with_own_output_notes(vec![OutputNote::Full(note.clone())])
-        .build()
-        .unwrap();
-    let tx_result = client
-        .new_transaction(creator_account.id(), note_req)
-        .await
-        .unwrap();
-
-    let _ = client.submit_transaction(tx_result).await;
-    client.sync_state().await.unwrap();
-
-    Ok(note)
-}
-
 // Waits for note
 pub async fn wait_for_note(
     client: &mut Client,
@@ -953,56 +729,6 @@ pub async fn wait_for_note(
         sleep(Duration::from_secs(3)).await;
     }
     Ok(())
-}
-
-pub fn create_tx_script(
-    script_code: String,
-    library: Option<Library>,
-) -> Result<TransactionScript, Error> {
-    let assembler = TransactionKernel::assembler();
-
-    let assembler = match library {
-        Some(lib) => assembler.with_library(lib),
-        None => Ok(assembler.with_debug_mode(true)),
-    }
-    .unwrap();
-    let tx_script = TransactionScript::compile(script_code, [], assembler).unwrap();
-
-    Ok(tx_script)
-}
-
-// Creates library
-pub fn create_library_simplified(
-    account_code: String,
-    library_path: &str,
-) -> Result<miden_assembly::Library, Box<dyn std::error::Error>> {
-    let assembler: Assembler = TransactionKernel::assembler().with_debug_mode(true);
-    let source_manager = Arc::new(DefaultSourceManager::default());
-    let module = Module::parser(ModuleKind::Library).parse_str(
-        LibraryPath::new(library_path)?,
-        account_code,
-        &source_manager,
-    )?;
-    let library = assembler.clone().assemble_library([module])?;
-    Ok(library)
-}
-
-pub fn create_exact_p2id_note(
-    sender: AccountId,
-    target: AccountId,
-    assets: Vec<Asset>,
-    note_type: NoteType,
-    aux: Felt,
-    serial_num: Word,
-) -> Result<Note, NoteError> {
-    let recipient = utils::build_p2id_recipient(target, serial_num)?;
-
-    let tag = NoteTag::from_account_id(target, NoteExecutionMode::Local)?;
-
-    let metadata = NoteMetadata::new(sender, note_type, tag, NoteExecutionHint::always(), aux)?;
-    let vault = NoteAssets::new(assets)?;
-
-    Ok(Note::new(vault, metadata, recipient))
 }
 
 /// Matching SWAPP notes

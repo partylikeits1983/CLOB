@@ -20,7 +20,7 @@ use miden_clob::{
         delete_keystore_and_store, get_p2id_serial_num, get_swapp_note, instantiate_client,
         setup_accounts_and_faucets, try_match_swapp_notes, wait_for_note,
     },
-    create_order_simple, try_match_swapp_notes_new,
+    create_order_simple,
 };
 
 #[tokio::test]
