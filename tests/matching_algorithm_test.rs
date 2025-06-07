@@ -894,3 +894,187 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn multi_order_fill_test() -> Result<(), ClientError> {
+    delete_keystore_and_store().await;
+
+    let endpoint = Endpoint::localhost();
+    let mut client = instantiate_client(endpoint).await?;
+    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+
+    let sync_summary = client.sync_state().await.unwrap();
+    println!("Latest block: {}", sync_summary.block_num);
+
+    // -------------------------------------------------------------------------
+    // STEP 1: Create Accounts (Alice, Bob, Matcher Account)
+    // -------------------------------------------------------------------------
+    // Setup accounts and balances
+    let balances = vec![
+        vec![10000, 10000], // For account[0] => Alice
+        vec![10000, 10000], // For account[0] => Bob
+        vec![10000, 10000], // For account[0] => matcher
+    ];
+    let (accounts, faucets) =
+        setup_accounts_and_faucets(&mut client, keystore, 3, 2, balances).await?;
+
+    // rename for clarity
+    let alice_account = accounts[0].clone();
+    let bob_account = accounts[1].clone();
+    let matcher_account = accounts[2].clone();
+    let faucet_a = faucets[0].clone();
+    let faucet_b = faucets[1].clone();
+
+    // -------------------------------------------------------------------------
+    // STEP 2: Create the SWAP Notes
+    // -------------------------------------------------------------------------
+    let swap_note_1_asset_a = FungibleAsset::new(faucet_a.id(), 100).unwrap();
+    let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
+    let swap_note_1_serial_num = client.rng().draw_word();
+    let swap_note_1 = create_partial_swap_note(
+        alice_account.id(),         // creator of the order
+        alice_account.id(),         // last account to "fill the order"
+        swap_note_1_asset_a.into(), // offered asset (selling)
+        swap_note_1_asset_b.into(), // requested asset (buying)
+        swap_note_1_serial_num,     // serial number of the order
+        0,                          // fill number (0 means hasn't been filled)
+    )
+    .unwrap();
+
+    let swap_note_2_asset_a = FungibleAsset::new(faucet_a.id(), 50).unwrap();
+    let swap_note_2_asset_b = FungibleAsset::new(faucet_b.id(), 50).unwrap();
+    let swap_note_2_serial_num = client.rng().draw_word();
+    let swap_note_2 = create_partial_swap_note(
+        bob_account.id(),
+        bob_account.id(),
+        swap_note_2_asset_b.into(),
+        swap_note_2_asset_a.into(),
+        swap_note_2_serial_num,
+        0,
+    )
+    .unwrap();
+
+    let swap_note_3_asset_a = FungibleAsset::new(faucet_a.id(), 80).unwrap();
+    let swap_note_3_asset_b = FungibleAsset::new(faucet_b.id(), 80).unwrap();
+    let swap_note_3_serial_num = client.rng().draw_word();
+    let swap_note_3 = create_partial_swap_note(
+        alice_account.id(),         // creator of the order
+        alice_account.id(),         // last account to "fill the order"
+        swap_note_3_asset_a.into(), // offered asset (selling)
+        swap_note_3_asset_b.into(), // requested asset (buying)
+        swap_note_3_serial_num,     // serial number of the order
+        0,                          // fill number (0 means hasn't been filled)
+    )
+    .unwrap();
+
+    let swap_note_4_asset_a = FungibleAsset::new(faucet_a.id(), 30).unwrap();
+    let swap_note_4_asset_b = FungibleAsset::new(faucet_b.id(), 30).unwrap();
+    let swap_note_4_serial_num = client.rng().draw_word();
+    let swap_note_4 = create_partial_swap_note(
+        bob_account.id(),
+        bob_account.id(),
+        swap_note_4_asset_b.into(),
+        swap_note_4_asset_a.into(),
+        swap_note_4_serial_num,
+        0,
+    )
+    .unwrap();
+
+    // put this in a for loop
+    let note_creation_request = TransactionRequestBuilder::new()
+        .with_own_output_notes(vec![
+            OutputNote::Full(swap_note_1.clone()),
+            OutputNote::Full(swap_note_3.clone()),
+        ])
+        .build()
+        .unwrap();
+    let tx_result = client
+        .new_transaction(alice_account.id(), note_creation_request)
+        .await
+        .unwrap();
+    client.submit_transaction(tx_result).await.unwrap();
+
+    let note_creation_request = TransactionRequestBuilder::new()
+        .with_own_output_notes(vec![
+            OutputNote::Full(swap_note_2.clone()),
+            OutputNote::Full(swap_note_4.clone()),
+        ])
+        .build()
+        .unwrap();
+    let tx_result = client
+        .new_transaction(bob_account.id(), note_creation_request)
+        .await
+        .unwrap();
+    client.submit_transaction(tx_result).await.unwrap();
+
+    println!("waiting");
+    wait_for_note(&mut client, &matcher_account, &swap_note_1)
+        .await
+        .unwrap();
+    wait_for_note(&mut client, &matcher_account, &swap_note_2)
+        .await
+        .unwrap();
+
+    // ---------------------------------------------------------------------------------
+    //  results from try_match_swapp_notes
+    // ---------------------------------------------------------------------------------
+    println!("calling try_match_swapp_notes");
+    let swap_data_1 = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher_account.id())
+        .unwrap()
+        .expect("orders should cross");
+
+    let swap_data_2 = try_match_swapp_notes(&swap_note_3, &swap_note_4, matcher_account.id())
+        .unwrap()
+        .expect("orders should cross");
+
+    // ---------------------------------------------------------------------------------
+    // STEP 3: Consume both SWAP notes in a single TX by the matcher & output p2id notes
+    // ---------------------------------------------------------------------------------
+    let mut expected_outputs = vec![
+        swap_data_1.p2id_from_1_to_2.clone(),
+        swap_data_1.p2id_from_2_to_1.clone(),
+        swap_data_2.p2id_from_1_to_2.clone(),
+        swap_data_2.p2id_from_2_to_1.clone(),
+    ];
+    if let Some(ref note) = swap_data_1.leftover_swapp_note {
+        expected_outputs.push(note.clone());
+    }
+    if let Some(ref note) = swap_data_2.leftover_swapp_note {
+        expected_outputs.push(note.clone());
+    }
+
+    let consume_req = TransactionRequestBuilder::new()
+        .with_authenticated_input_notes([
+            (swap_data_1.swap_note_1.id(), Some(swap_data_1.note1_args)),
+            (swap_data_1.swap_note_2.id(), Some(swap_data_1.note2_args)),
+            (swap_data_2.swap_note_1.id(), Some(swap_data_2.note1_args)),
+            (swap_data_2.swap_note_2.id(), Some(swap_data_2.note2_args)),
+        ])
+        .with_expected_output_notes(expected_outputs)
+        .build()
+        .unwrap();
+
+    let tx_result = client
+        .new_transaction(matcher_account.id(), consume_req)
+        .await
+        .unwrap();
+
+    let _ = client.submit_transaction(tx_result).await;
+
+    client.sync_state().await.unwrap();
+
+    let binding = client
+        .get_account(matcher_account.id())
+        .await
+        .unwrap()
+        .unwrap();
+    let matcher_account = binding.account();
+
+    println!(
+        "matcher account bal: A: {:?} B: {:?}",
+        matcher_account.clone().vault().get_balance(faucet_a.id()),
+        matcher_account.vault().get_balance(faucet_b.id())
+    );
+
+    Ok(())
+}

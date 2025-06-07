@@ -66,10 +66,10 @@ pub struct FilledOrderRecord {
     pub requested_amount: u64,
     pub price: f64,
     pub is_bid: bool,
-    pub note_data: String, // Serialized note
+    pub note_data: String,               // Serialized note
     pub original_status: SwapNoteStatus, // The status before being filled (Open, PartiallyFilled)
-    pub fill_type: String, // "complete" or "partial"
-    pub transaction_id: Option<String>, // The blockchain transaction ID that filled this order
+    pub fill_type: String,               // "complete" or "partial"
+    pub transaction_id: Option<String>,  // The blockchain transaction ID that filled this order
     pub created_at: DateTime<Utc>,
     pub filled_at: DateTime<Utc>,
 }
@@ -250,9 +250,13 @@ impl Database {
 
         // Drop the foreign key constraint if it exists (we need to recreate the table for SQLite)
         println!("Recreating p2id_notes table without foreign key constraint...");
-        let _ = sqlx::query("DROP TABLE IF EXISTS p2id_notes_backup").execute(&self.pool).await;
-        let _ = sqlx::query("ALTER TABLE p2id_notes RENAME TO p2id_notes_backup").execute(&self.pool).await;
-        
+        let _ = sqlx::query("DROP TABLE IF EXISTS p2id_notes_backup")
+            .execute(&self.pool)
+            .await;
+        let _ = sqlx::query("ALTER TABLE p2id_notes RENAME TO p2id_notes_backup")
+            .execute(&self.pool)
+            .await;
+
         // Recreate table without foreign key constraint
         let _ = sqlx::query(
             r#"
@@ -269,8 +273,10 @@ impl Database {
                 created_at TEXT NOT NULL
             )
             "#,
-        ).execute(&self.pool).await;
-        
+        )
+        .execute(&self.pool)
+        .await;
+
         // Copy data from backup table
         let _ = sqlx::query(
             r#"
@@ -281,9 +287,11 @@ impl Database {
             FROM p2id_notes_backup
             "#,
         ).execute(&self.pool).await;
-        
+
         // Drop backup table
-        let _ = sqlx::query("DROP TABLE IF EXISTS p2id_notes_backup").execute(&self.pool).await;
+        let _ = sqlx::query("DROP TABLE IF EXISTS p2id_notes_backup")
+            .execute(&self.pool)
+            .await;
 
         println!("Creating filled_orders table...");
         let result = sqlx::query(
@@ -699,7 +707,12 @@ impl Database {
         Ok(())
     }
 
-    pub async fn move_to_filled_orders(&self, note_id: &str, fill_type: &str, transaction_id: Option<String>) -> Result<()> {
+    pub async fn move_to_filled_orders(
+        &self,
+        note_id: &str,
+        fill_type: &str,
+        transaction_id: Option<String>,
+    ) -> Result<()> {
         // First, get the swap note record
         let swap_note = sqlx::query("SELECT * FROM swap_notes WHERE note_id = ?")
             .bind(note_id)
@@ -778,10 +791,11 @@ impl Database {
     }
 
     pub async fn get_user_filled_orders(&self, user_id: &str) -> Result<Vec<FilledOrderRecord>> {
-        let rows = sqlx::query("SELECT * FROM filled_orders WHERE creator_id = ? ORDER BY filled_at DESC")
-            .bind(user_id)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query("SELECT * FROM filled_orders WHERE creator_id = ? ORDER BY filled_at DESC")
+                .bind(user_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         let mut records = Vec::new();
         for row in rows {

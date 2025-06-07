@@ -9,7 +9,7 @@ use chrono::Utc;
 use miden_client::{account::AccountId, asset::FungibleAsset, note::Note, rpc::Endpoint};
 use miden_clob::{
     common::{instantiate_client, try_match_swapp_notes},
-    database::{Database, SwapNoteRecord, SwapNoteStatus, P2IdNoteRecord},
+    database::{Database, P2IdNoteRecord, SwapNoteRecord, SwapNoteStatus},
     note_serialization::{deserialize_note, extract_note_info, serialize_note},
 };
 use uuid::Uuid;
@@ -319,7 +319,9 @@ async fn execute_blockchain_match(
 
     // Handle order lifecycle: move both orders to filled_orders table and handle leftovers
     if let Some(ref leftover_note) = swap_data.leftover_swapp_note {
-        info!("📝 Processing partial fill - moving orders to filled_orders and adding leftover note");
+        info!(
+            "📝 Processing partial fill - moving orders to filled_orders and adding leftover note"
+        );
 
         // Determine which note was partially filled by comparing with the leftover note creator
         let leftover_creator = miden_clob::common::creator_of(leftover_note);
@@ -333,21 +335,41 @@ async fn execute_blockchain_match(
 
         // Move both orders to filled_orders table
         if let Err(e) = db
-            .move_to_filled_orders(&fully_filled_record.note_id, "complete", Some(tx_id_hex.clone()))
+            .move_to_filled_orders(
+                &fully_filled_record.note_id,
+                "complete",
+                Some(tx_id_hex.clone()),
+            )
             .await
         {
-            error!("Failed to move fully filled order {} to filled_orders: {}", fully_filled_record.note_id, e);
+            error!(
+                "Failed to move fully filled order {} to filled_orders: {}",
+                fully_filled_record.note_id, e
+            );
         } else {
-            info!("✅ Moved fully filled order {} to filled_orders table", fully_filled_record.note_id);
+            info!(
+                "✅ Moved fully filled order {} to filled_orders table",
+                fully_filled_record.note_id
+            );
         }
 
         if let Err(e) = db
-            .move_to_filled_orders(&partially_filled_record.note_id, "partial", Some(tx_id_hex.clone()))
+            .move_to_filled_orders(
+                &partially_filled_record.note_id,
+                "partial",
+                Some(tx_id_hex.clone()),
+            )
             .await
         {
-            error!("Failed to move partially filled order {} to filled_orders: {}", partially_filled_record.note_id, e);
+            error!(
+                "Failed to move partially filled order {} to filled_orders: {}",
+                partially_filled_record.note_id, e
+            );
         } else {
-            info!("✅ Moved partially filled order {} to filled_orders table", partially_filled_record.note_id);
+            info!(
+                "✅ Moved partially filled order {} to filled_orders table",
+                partially_filled_record.note_id
+            );
         }
 
         // Add the leftover note as a new open order
@@ -362,7 +384,10 @@ async fn execute_blockchain_match(
             .move_to_filled_orders(&record1.note_id, "complete", Some(tx_id_hex.clone()))
             .await
         {
-            error!("Failed to move order {} to filled_orders: {}", record1.note_id, e);
+            error!(
+                "Failed to move order {} to filled_orders: {}",
+                record1.note_id, e
+            );
         } else {
             info!("✅ Moved order {} to filled_orders table", record1.note_id);
         }
@@ -371,7 +396,10 @@ async fn execute_blockchain_match(
             .move_to_filled_orders(&record2.note_id, "complete", Some(tx_id_hex.clone()))
             .await
         {
-            error!("Failed to move order {} to filled_orders: {}", record2.note_id, e);
+            error!(
+                "Failed to move order {} to filled_orders: {}",
+                record2.note_id, e
+            );
         } else {
             info!("✅ Moved order {} to filled_orders table", record2.note_id);
         }
@@ -389,9 +417,10 @@ async fn save_p2id_notes_to_db(
     let p2id_1_to_2_serialized = serialize_note(&swap_data.p2id_from_1_to_2)?;
     let note1_creator = miden_clob::common::creator_of(&swap_data.swap_note_1);
     let note2_creator = miden_clob::common::creator_of(&swap_data.swap_note_2);
-    
+
     // Extract asset info from P2ID note 1->2
-    let p2id_1_to_2_asset = swap_data.p2id_from_1_to_2
+    let p2id_1_to_2_asset = swap_data
+        .p2id_from_1_to_2
         .assets()
         .iter()
         .next()
@@ -414,14 +443,18 @@ async fn save_p2id_notes_to_db(
     if let Err(e) = db.insert_p2id_note(&p2id_record_1_to_2).await {
         error!("Failed to save P2ID note 1->2: {}", e);
     } else {
-        info!("✅ Saved P2ID note {} (1->2) to database", swap_data.p2id_from_1_to_2.id().to_hex());
+        info!(
+            "✅ Saved P2ID note {} (1->2) to database",
+            swap_data.p2id_from_1_to_2.id().to_hex()
+        );
     }
 
     // Save P2ID note from note2 to note1
     let p2id_2_to_1_serialized = serialize_note(&swap_data.p2id_from_2_to_1)?;
-    
+
     // Extract asset info from P2ID note 2->1
-    let p2id_2_to_1_asset = swap_data.p2id_from_2_to_1
+    let p2id_2_to_1_asset = swap_data
+        .p2id_from_2_to_1
         .assets()
         .iter()
         .next()
@@ -444,7 +477,10 @@ async fn save_p2id_notes_to_db(
     if let Err(e) = db.insert_p2id_note(&p2id_record_2_to_1).await {
         error!("Failed to save P2ID note 2->1: {}", e);
     } else {
-        info!("✅ Saved P2ID note {} (2->1) to database", swap_data.p2id_from_2_to_1.id().to_hex());
+        info!(
+            "✅ Saved P2ID note {} (2->1) to database",
+            swap_data.p2id_from_2_to_1.id().to_hex()
+        );
     }
 
     Ok(())
@@ -453,7 +489,7 @@ async fn save_p2id_notes_to_db(
 async fn insert_leftover_note_to_db(db: &Database, leftover_note: &Note) -> Result<()> {
     // Serialize and extract info from the leftover note
     let serialized_note = serialize_note(leftover_note)?;
-    
+
     let (
         creator_id,
         offered_asset_id,
