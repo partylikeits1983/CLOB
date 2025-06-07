@@ -1,4 +1,4 @@
-use chrono::{Local, Utc};
+use chrono::Local;
 use miden_client::{Felt, account::AccountId};
 use miden_clob::{
     common::generate_depth_chart, database::Database, note_serialization::deserialize_note,

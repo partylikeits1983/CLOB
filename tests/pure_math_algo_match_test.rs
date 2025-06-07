@@ -3,7 +3,7 @@ use miden_clob::{
     common::{
         create_partial_swap_note, decompose_swapp_note, price_to_swap_note, try_match_swapp_notes,
     },
-    compute_partial_swapp, try_match_swapp_notes_new,
+    compute_partial_swapp,
 };
 
 #[test]

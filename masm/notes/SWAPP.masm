@@ -61,7 +61,7 @@ const.IS_PARTIAL_FILL = 0x0035
 
 # Full Word Memory Addresses (80 to 120, must be divisible by 4)
 const.SWAPP_SCRIPT_HASH_WORD = 0x0050
-const.P2ID_SCRIPT_HASH_WORD = 0x0054
+const.P2ID_SCRIPT_ROOT_WORD = 0x0054
 const.SWAP_SERIAL_NUM_WORD = 0x0058
 const.P2ID_SERIAL_NUM_WORD = 0x005C
 const.P2ID_OUTPUT_RECIPIENT_WORD = 0x0060
@@ -75,16 +75,16 @@ const.NEW_ASSET_A = 0x0078
 # =================================================================================================
 
 # SWAP script expects exactly 9 note inputs
-const.ERR_SWAP_WRONG_NUMBER_OF_INPUTS=0x00020007
+const.ERR_SWAP_WRONG_NUMBER_OF_INPUTS="SWAPP wrong number of inputs"
 
 # SWAP script requires exactly one note asset
-const.ERR_SWAP_WRONG_NUMBER_OF_ASSETS=0x00020008
+const.ERR_SWAP_WRONG_NUMBER_OF_ASSETS="SWAPP wrong number of assets"
 
 # SWAP amount must not exceed 184467440694145
-const.ERR_INVALID_SWAP_AMOUNT=0x00020009
+const.ERR_INVALID_SWAP_AMOUNT="SWAPP invalid SWAP amount"
 
 # SWAPp amount must not be 0
-const.ERR_INVALID_SWAP_AMOUT_ZERO=0x0002000A
+const.ERR_INVALID_SWAP_AMOUNT_ZERO="SWAPP zero SWAP amount"
 
 # PRICE CALCULATION
 # =================================================================================================
@@ -370,7 +370,7 @@ proc.execute_SWAPp
         # => [token_b_AMT_IN]
 
         # token_b_AMT_IN must not be 0
-        dup push.0 neq assert.err=ERR_INVALID_SWAP_AMOUT_ZERO
+        dup push.0 neq assert.err=ERR_INVALID_SWAP_AMOUNT_ZERO
         # => [token_b_AMT_IN]
 
         mem_store.AMT_TOKENS_B_IN
@@ -419,7 +419,7 @@ proc.execute_SWAPp
     # 3) create SWAPp' and calculate token_a' & token_b'
     # 4) add token_a' and token_b' to SWAPp'
 
-    padw mem_loadw.P2ID_SCRIPT_HASH_WORD
+    padw mem_loadw.P2ID_SCRIPT_ROOT_WORD
     # => [P2ID_SCRIPT_HASH]
 
     exec.increment_swap_count
@@ -449,6 +449,8 @@ proc.execute_SWAPp
     mem_load.P2ID_TAG_INPUT
     # => [tag, aux, public_note, execution_hint_always, P2ID_RECIPIENT]
     # => [tag, aux, note_type, execution_hint, RECIPIENT]
+
+    push.111 debug.stack drop
 
     call.wallet::create_note
     # => [note_idx, pad(15) ...]
@@ -566,8 +568,8 @@ begin
     mem_store.AMT_TOKENS_B_IN drop drop drop
     # => []
 
-    push.5114721150025532103.1324187411136457873.11900545512113364072.1928473465238172547
-    mem_storew.P2ID_SCRIPT_HASH_WORD dropw
+    push.16931441755463843374.8308373913316597651.13395076160329158355.13190778139566330073
+    mem_storew.P2ID_SCRIPT_ROOT_WORD dropw
     # => []
 
     exec.is_consumer_is_creator

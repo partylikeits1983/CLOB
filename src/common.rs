@@ -715,8 +715,10 @@ pub async fn wait_for_note(
     loop {
         client.sync_state().await?;
 
+        // let res = client.get_note_consumability()
+
         let notes: Vec<(InputNoteRecord, Vec<(AccountId, NoteRelevance)>)> =
-            client.get_consumable_notes(Some(account_id.id())).await?;
+            client.get_consumable_notes(None).await?;
 
         let found = notes.iter().any(|(rec, _)| rec.id() == expected.id());
 
@@ -863,13 +865,14 @@ pub fn try_match_swapp_notes(
         return Ok(None);
     }
 
+    // compute output amounts
     let (amount_a_1_p2id1, new_amount_a_note1, new_amount_b_note1) =
         compute_partial_swapp(offer1_raw.amount(), want1_raw.amount(), offer2_raw.amount());
 
     let (amount_a_1_p2id2, new_amount_a_note2, new_amount_b_note2) =
         compute_partial_swapp(offer2_raw.amount(), want2_raw.amount(), offer1_raw.amount());
 
-    // check that matcher won't lose money matching
+    // check that matcher won't lose assets matching
     {
         let a1: u128 = offer1_raw.amount().into();
         let b1: u128 = want1_raw.amount().into();
@@ -1044,6 +1047,23 @@ pub fn try_match_swapp_notes(
         Felt::new(0),
         Felt::new(want2_raw.amount()),
     ];
+
+    // If complete order fill
+    if new_amount_a_note1 == 0
+        && new_amount_b_note1 == 0
+        && new_amount_a_note2 == 0
+        && new_amount_b_note2 == 0
+    {
+        return Ok(Some(MatchedSwap {
+            p2id_from_1_to_2: p2id_output_note1,
+            p2id_from_2_to_1: p2id_output_note2,
+            leftover_swapp_note: None,
+            swap_note_1: note1_in.clone(),
+            swap_note_2: note2_in.clone(),
+            note1_args,
+            note2_args,
+        }));
+    }
 
     let mut sn = note1_in.serial_num();
     sn[3] = Felt::new(sn[3].as_int() + 1);
