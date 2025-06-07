@@ -9,7 +9,7 @@ use chrono::Utc;
 use miden_client::{account::AccountId, asset::FungibleAsset, note::Note, rpc::Endpoint};
 use miden_clob::{
     common::{instantiate_client, try_match_swapp_notes},
-    database::{Database, SwapNoteRecord, SwapNoteStatus},
+    database::{Database, SwapNoteRecord, SwapNoteStatus, P2IdNoteRecord},
     note_serialization::{deserialize_note, extract_note_info, serialize_note},
 };
 use uuid::Uuid;
@@ -237,7 +237,7 @@ async fn execute_blockchain_match(
     info!(
         "Executing blockchain transaction for match between {} and {}",
         swap_data.swap_note_1.id().to_hex(),
-        swap_data.swap_note_1.id().to_hex()
+        swap_data.swap_note_2.id().to_hex()
     );
 
     let mut client = match instantiate_client(endpoint).await {
@@ -311,14 +311,19 @@ async fn execute_blockchain_match(
         tx_id_hex
     );
 
-    // Update database based on whether there's a partial fill
+    // Save P2ID notes to database
+    if let Err(e) = save_p2id_notes_to_db(db, swap_data, &tx_id_hex).await {
+        error!("Failed to save P2ID notes to database: {}", e);
+        // Continue execution as this is not critical for the blockchain transaction
+    }
+
+    // Handle order lifecycle: move both orders to filled_orders table and handle leftovers
     if let Some(ref leftover_note) = swap_data.leftover_swapp_note {
-        info!("📝 Processing partial fill - adding leftover note to database");
+        info!("📝 Processing partial fill - moving orders to filled_orders and adding leftover note");
 
         // Determine which note was partially filled by comparing with the leftover note creator
         let leftover_creator = miden_clob::common::creator_of(leftover_note);
         let note1_creator = miden_clob::common::creator_of(&swap_data.swap_note_1);
-        let _note2_creator = miden_clob::common::creator_of(&swap_data.swap_note_2);
 
         let (partially_filled_record, fully_filled_record) = if leftover_creator == note1_creator {
             (record1, record2)
@@ -326,121 +331,165 @@ async fn execute_blockchain_match(
             (record2, record1)
         };
 
-        // Mark the fully filled order as Filled
+        // Move both orders to filled_orders table
         if let Err(e) = db
-            .update_swap_note_status(&fully_filled_record.note_id, SwapNoteStatus::Filled)
+            .move_to_filled_orders(&fully_filled_record.note_id, "complete", Some(tx_id_hex.clone()))
             .await
         {
-            error!("Failed to update fully filled order status: {}", e);
+            error!("Failed to move fully filled order {} to filled_orders: {}", fully_filled_record.note_id, e);
         } else {
-            info!("✅ Marked order {} as Filled", fully_filled_record.note_id);
+            info!("✅ Moved fully filled order {} to filled_orders table", fully_filled_record.note_id);
         }
 
-        // Mark the partially filled order as PartiallyFilled
         if let Err(e) = db
-            .update_swap_note_status(
-                &partially_filled_record.note_id,
-                SwapNoteStatus::PartiallyFilled,
-            )
+            .move_to_filled_orders(&partially_filled_record.note_id, "partial", Some(tx_id_hex.clone()))
             .await
         {
-            error!("Failed to update partially filled order status: {}", e);
+            error!("Failed to move partially filled order {} to filled_orders: {}", partially_filled_record.note_id, e);
         } else {
-            info!(
-                "✅ Marked order {} as PartiallyFilled",
-                partially_filled_record.note_id
-            );
+            info!("✅ Moved partially filled order {} to filled_orders table", partially_filled_record.note_id);
         }
 
-        // Serialize and extract info from the leftover note
-        match serialize_note(leftover_note) {
-            Ok(serialized_note) => {
-                match extract_note_info(leftover_note) {
-                    Ok((
-                        creator_id,
-                        offered_asset_id,
-                        offered_amount,
-                        requested_asset_id,
-                        requested_amount,
-                        price,
-                        is_bid,
-                    )) => {
-                        // Create new database record for the leftover note
-                        let leftover_record = SwapNoteRecord {
-                            id: Uuid::new_v4().to_string(),
-                            note_id: leftover_note.id().to_hex(),
-                            creator_id,
-                            offered_asset_id,
-                            offered_amount,
-                            requested_asset_id,
-                            requested_amount,
-                            price,
-                            is_bid,
-                            note_data: serialized_note,
-                            status: SwapNoteStatus::Open,
-                            failure_count: 0,
-                            created_at: Utc::now(),
-                            updated_at: Utc::now(),
-                        };
-
-                        // Insert the leftover note as a new open order
-                        if let Err(e) = db.insert_swap_note(&leftover_record).await {
-                            error!(
-                                "Failed to insert leftover note {} into database: {} - leftover note will be lost",
-                                leftover_note.id().to_hex(),
-                                e
-                            );
-                        } else {
-                            info!(
-                                "✅ Added leftover note {} back to order book",
-                                leftover_note.id().to_hex()
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        error!(
-                            "Failed to extract info from leftover note {}: {} - leftover note will be lost",
-                            leftover_note.id().to_hex(),
-                            e
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                error!(
-                    "Failed to serialize leftover note {}: {} - leftover note will be lost",
-                    leftover_note.id().to_hex(),
-                    e
-                );
-            }
+        // Add the leftover note as a new open order
+        if let Err(e) = insert_leftover_note_to_db(db, leftover_note).await {
+            error!("Failed to insert leftover note: {}", e);
         }
     } else {
-        info!("📝 Processing complete fill - both orders fully matched");
+        info!("📝 Processing complete fill - moving both orders to filled_orders");
 
-        // Both orders are completely filled
+        // Both orders are completely filled - move both to filled_orders table
         if let Err(e) = db
-            .update_swap_note_status(&record1.note_id, SwapNoteStatus::Filled)
+            .move_to_filled_orders(&record1.note_id, "complete", Some(tx_id_hex.clone()))
             .await
         {
-            error!("Failed to update order1 status: {}", e);
+            error!("Failed to move order {} to filled_orders: {}", record1.note_id, e);
         } else {
-            info!("✅ Marked order {} as Filled", record1.note_id);
+            info!("✅ Moved order {} to filled_orders table", record1.note_id);
         }
 
         if let Err(e) = db
-            .update_swap_note_status(&record2.note_id, SwapNoteStatus::Filled)
+            .move_to_filled_orders(&record2.note_id, "complete", Some(tx_id_hex.clone()))
             .await
         {
-            error!(
-                "Failed to update order2 status for {}: {} - continuing with transaction",
-                record2.note_id, e
-            );
+            error!("Failed to move order {} to filled_orders: {}", record2.note_id, e);
         } else {
-            info!("✅ Marked order {} as Filled", record2.note_id);
+            info!("✅ Moved order {} to filled_orders table", record2.note_id);
         }
     }
 
     Ok(tx_id_hex)
+}
+
+async fn save_p2id_notes_to_db(
+    db: &Database,
+    swap_data: &miden_clob::common::MatchedSwap,
+    tx_id: &str,
+) -> Result<()> {
+    // Save P2ID note from note1 to note2
+    let p2id_1_to_2_serialized = serialize_note(&swap_data.p2id_from_1_to_2)?;
+    let note1_creator = miden_clob::common::creator_of(&swap_data.swap_note_1);
+    let note2_creator = miden_clob::common::creator_of(&swap_data.swap_note_2);
+    
+    // Extract asset info from P2ID note 1->2
+    let p2id_1_to_2_asset = swap_data.p2id_from_1_to_2
+        .assets()
+        .iter()
+        .next()
+        .expect("P2ID note has no assets")
+        .unwrap_fungible();
+
+    let p2id_record_1_to_2 = P2IdNoteRecord {
+        id: Uuid::new_v4().to_string(),
+        note_id: swap_data.p2id_from_1_to_2.id().to_hex(),
+        sender_id: note1_creator.to_hex(),
+        target_id: note2_creator.to_hex(),
+        recipient: note2_creator.to_hex(), // The recipient is the note2 creator
+        asset_id: p2id_1_to_2_asset.faucet_id().to_hex(),
+        amount: p2id_1_to_2_asset.amount(),
+        swap_note_id: Some(swap_data.swap_note_1.id().to_hex()),
+        note_data: p2id_1_to_2_serialized,
+        created_at: Utc::now(),
+    };
+
+    if let Err(e) = db.insert_p2id_note(&p2id_record_1_to_2).await {
+        error!("Failed to save P2ID note 1->2: {}", e);
+    } else {
+        info!("✅ Saved P2ID note {} (1->2) to database", swap_data.p2id_from_1_to_2.id().to_hex());
+    }
+
+    // Save P2ID note from note2 to note1
+    let p2id_2_to_1_serialized = serialize_note(&swap_data.p2id_from_2_to_1)?;
+    
+    // Extract asset info from P2ID note 2->1
+    let p2id_2_to_1_asset = swap_data.p2id_from_2_to_1
+        .assets()
+        .iter()
+        .next()
+        .expect("P2ID note has no assets")
+        .unwrap_fungible();
+
+    let p2id_record_2_to_1 = P2IdNoteRecord {
+        id: Uuid::new_v4().to_string(),
+        note_id: swap_data.p2id_from_2_to_1.id().to_hex(),
+        sender_id: note2_creator.to_hex(),
+        target_id: note1_creator.to_hex(),
+        recipient: note1_creator.to_hex(), // The recipient is the note1 creator
+        asset_id: p2id_2_to_1_asset.faucet_id().to_hex(),
+        amount: p2id_2_to_1_asset.amount(),
+        swap_note_id: Some(swap_data.swap_note_2.id().to_hex()),
+        note_data: p2id_2_to_1_serialized,
+        created_at: Utc::now(),
+    };
+
+    if let Err(e) = db.insert_p2id_note(&p2id_record_2_to_1).await {
+        error!("Failed to save P2ID note 2->1: {}", e);
+    } else {
+        info!("✅ Saved P2ID note {} (2->1) to database", swap_data.p2id_from_2_to_1.id().to_hex());
+    }
+
+    Ok(())
+}
+
+async fn insert_leftover_note_to_db(db: &Database, leftover_note: &Note) -> Result<()> {
+    // Serialize and extract info from the leftover note
+    let serialized_note = serialize_note(leftover_note)?;
+    
+    let (
+        creator_id,
+        offered_asset_id,
+        offered_amount,
+        requested_asset_id,
+        requested_amount,
+        price,
+        is_bid,
+    ) = extract_note_info(leftover_note)?;
+
+    // Create new database record for the leftover note
+    let leftover_record = SwapNoteRecord {
+        id: Uuid::new_v4().to_string(),
+        note_id: leftover_note.id().to_hex(),
+        creator_id,
+        offered_asset_id,
+        offered_amount,
+        requested_asset_id,
+        requested_amount,
+        price,
+        is_bid,
+        note_data: serialized_note,
+        status: SwapNoteStatus::Open,
+        failure_count: 0,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    // Insert the leftover note as a new open order
+    db.insert_swap_note(&leftover_record).await?;
+    info!(
+        "✅ Added leftover note {} back to order book",
+        leftover_note.id().to_hex()
+    );
+
+    Ok(())
 }
 
 async fn handle_match_failure(db: &Database, note_id: &str, failure_reason: &str) -> Result<()> {

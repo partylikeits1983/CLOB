@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 use std::fs;
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SwapNoteRecord {
@@ -46,11 +47,31 @@ pub struct P2IdNoteRecord {
     pub note_id: String,
     pub sender_id: String,
     pub target_id: String,
+    pub recipient: String, // Recipient account id as hex
     pub asset_id: String,
     pub amount: u64,
     pub swap_note_id: Option<String>,
     pub note_data: String, // Serialized note
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FilledOrderRecord {
+    pub id: String,
+    pub note_id: String,
+    pub creator_id: String,
+    pub offered_asset_id: String,
+    pub offered_amount: u64,
+    pub requested_asset_id: String,
+    pub requested_amount: u64,
+    pub price: f64,
+    pub is_bid: bool,
+    pub note_data: String, // Serialized note
+    pub original_status: SwapNoteStatus, // The status before being filled (Open, PartiallyFilled)
+    pub fill_type: String, // "complete" or "partial"
+    pub transaction_id: Option<String>, // The blockchain transaction ID that filled this order
+    pub created_at: DateTime<Utc>,
+    pub filled_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -201,12 +222,12 @@ impl Database {
                 note_id TEXT UNIQUE NOT NULL,
                 sender_id TEXT NOT NULL,
                 target_id TEXT NOT NULL,
+                recipient TEXT NOT NULL,
                 asset_id TEXT NOT NULL,
                 amount INTEGER NOT NULL,
                 swap_note_id TEXT,
                 note_data TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY (swap_note_id) REFERENCES swap_notes(id)
+                created_at TEXT NOT NULL
             )
             "#,
         )
@@ -217,6 +238,82 @@ impl Database {
             Ok(_) => println!("✅ p2id_notes table created successfully"),
             Err(e) => {
                 println!("❌ Failed to create p2id_notes table: {}", e);
+                return Err(e.into());
+            }
+        }
+
+        // Add recipient column to existing p2id_notes table if it doesn't exist
+        println!("Adding recipient column to existing p2id_notes table...");
+        let _ = sqlx::query("ALTER TABLE p2id_notes ADD COLUMN recipient TEXT")
+            .execute(&self.pool)
+            .await; // Ignore error if column already exists
+
+        // Drop the foreign key constraint if it exists (we need to recreate the table for SQLite)
+        println!("Recreating p2id_notes table without foreign key constraint...");
+        let _ = sqlx::query("DROP TABLE IF EXISTS p2id_notes_backup").execute(&self.pool).await;
+        let _ = sqlx::query("ALTER TABLE p2id_notes RENAME TO p2id_notes_backup").execute(&self.pool).await;
+        
+        // Recreate table without foreign key constraint
+        let _ = sqlx::query(
+            r#"
+            CREATE TABLE p2id_notes (
+                id TEXT PRIMARY KEY,
+                note_id TEXT UNIQUE NOT NULL,
+                sender_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                recipient TEXT,
+                asset_id TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                swap_note_id TEXT,
+                note_data TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            "#,
+        ).execute(&self.pool).await;
+        
+        // Copy data from backup table
+        let _ = sqlx::query(
+            r#"
+            INSERT INTO p2id_notes (id, note_id, sender_id, target_id, recipient, asset_id, amount, swap_note_id, note_data, created_at)
+            SELECT id, note_id, sender_id, target_id,
+                   CASE WHEN recipient IS NOT NULL THEN recipient ELSE target_id END as recipient,
+                   asset_id, amount, swap_note_id, note_data, created_at
+            FROM p2id_notes_backup
+            "#,
+        ).execute(&self.pool).await;
+        
+        // Drop backup table
+        let _ = sqlx::query("DROP TABLE IF EXISTS p2id_notes_backup").execute(&self.pool).await;
+
+        println!("Creating filled_orders table...");
+        let result = sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS filled_orders (
+                id TEXT PRIMARY KEY,
+                note_id TEXT NOT NULL,
+                creator_id TEXT NOT NULL,
+                offered_asset_id TEXT NOT NULL,
+                offered_amount INTEGER NOT NULL,
+                requested_asset_id TEXT NOT NULL,
+                requested_amount INTEGER NOT NULL,
+                price REAL NOT NULL,
+                is_bid BOOLEAN NOT NULL,
+                note_data TEXT NOT NULL,
+                original_status TEXT NOT NULL,
+                fill_type TEXT NOT NULL,
+                transaction_id TEXT,
+                created_at TEXT NOT NULL,
+                filled_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await;
+
+        match result {
+            Ok(_) => println!("✅ filled_orders table created successfully"),
+            Err(e) => {
+                println!("❌ Failed to create filled_orders table: {}", e);
                 return Err(e.into());
             }
         }
@@ -285,15 +382,16 @@ impl Database {
         sqlx::query(
             r#"
             INSERT INTO p2id_notes (
-                id, note_id, sender_id, target_id, asset_id, amount,
+                id, note_id, sender_id, target_id, recipient, asset_id, amount,
                 swap_note_id, note_data, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&record.id)
         .bind(&record.note_id)
         .bind(&record.sender_id)
         .bind(&record.target_id)
+        .bind(&record.recipient)
         .bind(&record.asset_id)
         .bind(record.amount as i64)
         .bind(&record.swap_note_id)
@@ -564,6 +662,149 @@ impl Database {
                 failure_reason: row.get("failure_reason"),
                 created_at: DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&Utc),
                 failed_at: DateTime::parse_from_rfc3339(&failed_at_str)?.with_timezone(&Utc),
+            });
+        }
+
+        Ok(records)
+    }
+
+    pub async fn insert_filled_order(&self, record: &FilledOrderRecord) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO filled_orders (
+                id, note_id, creator_id, offered_asset_id, offered_amount,
+                requested_asset_id, requested_amount, price, is_bid,
+                note_data, original_status, fill_type, transaction_id, created_at, filled_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&record.id)
+        .bind(&record.note_id)
+        .bind(&record.creator_id)
+        .bind(&record.offered_asset_id)
+        .bind(record.offered_amount as i64)
+        .bind(&record.requested_asset_id)
+        .bind(record.requested_amount as i64)
+        .bind(record.price)
+        .bind(record.is_bid)
+        .bind(&record.note_data)
+        .bind(record.original_status.to_string())
+        .bind(&record.fill_type)
+        .bind(&record.transaction_id)
+        .bind(record.created_at.to_rfc3339())
+        .bind(record.filled_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn move_to_filled_orders(&self, note_id: &str, fill_type: &str, transaction_id: Option<String>) -> Result<()> {
+        // First, get the swap note record
+        let swap_note = sqlx::query("SELECT * FROM swap_notes WHERE note_id = ?")
+            .bind(note_id)
+            .fetch_one(&self.pool)
+            .await?;
+
+        // Parse the status from the database
+        let status_str: String = swap_note.get("status");
+        let original_status: SwapNoteStatus = status_str.parse()?;
+
+        // Create a filled order record
+        let filled_record = FilledOrderRecord {
+            id: Uuid::new_v4().to_string(),
+            note_id: swap_note.get::<String, _>("note_id"),
+            creator_id: swap_note.get::<String, _>("creator_id"),
+            offered_asset_id: swap_note.get::<String, _>("offered_asset_id"),
+            offered_amount: swap_note.get::<i64, _>("offered_amount") as u64,
+            requested_asset_id: swap_note.get::<String, _>("requested_asset_id"),
+            requested_amount: swap_note.get::<i64, _>("requested_amount") as u64,
+            price: swap_note.get::<f64, _>("price"),
+            is_bid: swap_note.get::<bool, _>("is_bid"),
+            note_data: swap_note.get::<String, _>("note_data"),
+            original_status,
+            fill_type: fill_type.to_string(),
+            transaction_id,
+            created_at: {
+                let created_at_str: String = swap_note.get("created_at");
+                DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&Utc)
+            },
+            filled_at: Utc::now(),
+        };
+
+        // Insert into filled_orders table
+        self.insert_filled_order(&filled_record).await?;
+
+        // Remove from swap_notes table
+        sqlx::query("DELETE FROM swap_notes WHERE note_id = ?")
+            .bind(note_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_filled_orders(&self) -> Result<Vec<FilledOrderRecord>> {
+        let rows = sqlx::query("SELECT * FROM filled_orders ORDER BY filled_at DESC")
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut records = Vec::new();
+        for row in rows {
+            let original_status_str: String = row.get("original_status");
+            let created_at_str: String = row.get("created_at");
+            let filled_at_str: String = row.get("filled_at");
+
+            records.push(FilledOrderRecord {
+                id: row.get("id"),
+                note_id: row.get("note_id"),
+                creator_id: row.get("creator_id"),
+                offered_asset_id: row.get("offered_asset_id"),
+                offered_amount: row.get::<i64, _>("offered_amount") as u64,
+                requested_asset_id: row.get("requested_asset_id"),
+                requested_amount: row.get::<i64, _>("requested_amount") as u64,
+                price: row.get("price"),
+                is_bid: row.get("is_bid"),
+                note_data: row.get("note_data"),
+                original_status: original_status_str.parse()?,
+                fill_type: row.get("fill_type"),
+                transaction_id: row.get("transaction_id"),
+                created_at: DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&Utc),
+                filled_at: DateTime::parse_from_rfc3339(&filled_at_str)?.with_timezone(&Utc),
+            });
+        }
+
+        Ok(records)
+    }
+
+    pub async fn get_user_filled_orders(&self, user_id: &str) -> Result<Vec<FilledOrderRecord>> {
+        let rows = sqlx::query("SELECT * FROM filled_orders WHERE creator_id = ? ORDER BY filled_at DESC")
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut records = Vec::new();
+        for row in rows {
+            let original_status_str: String = row.get("original_status");
+            let created_at_str: String = row.get("created_at");
+            let filled_at_str: String = row.get("filled_at");
+
+            records.push(FilledOrderRecord {
+                id: row.get("id"),
+                note_id: row.get("note_id"),
+                creator_id: row.get("creator_id"),
+                offered_asset_id: row.get("offered_asset_id"),
+                offered_amount: row.get::<i64, _>("offered_amount") as u64,
+                requested_asset_id: row.get("requested_asset_id"),
+                requested_amount: row.get::<i64, _>("requested_amount") as u64,
+                price: row.get("price"),
+                is_bid: row.get("is_bid"),
+                note_data: row.get("note_data"),
+                original_status: original_status_str.parse()?,
+                fill_type: row.get("fill_type"),
+                transaction_id: row.get("transaction_id"),
+                created_at: DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&Utc),
+                filled_at: DateTime::parse_from_rfc3339(&filled_at_str)?.with_timezone(&Utc),
             });
         }
 
