@@ -49,7 +49,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "populate"
-path = "src/populate.rs"
+path = "src/bin/populate.rs"
 
 [[bin]]
 name = "depth_chart"

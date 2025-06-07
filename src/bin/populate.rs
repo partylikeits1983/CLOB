@@ -1,8 +1,4 @@
-mod common;
-mod database;
-mod note_serialization;
-mod orderbook;
-mod server;
+use miden_clob::note_serialization;
 
 use anyhow::{Result, anyhow};
 use dotenv::dotenv;
@@ -14,15 +10,15 @@ use std::fs;
 use tokio::time::{Duration, sleep};
 use tracing::{error, info, warn};
 
-use crate::common::{
-    delete_keystore_and_store, instantiate_client, price_to_swap_note, setup_accounts_and_faucets,
-};
 use miden_client::{
     Client,
     account::{Account, AccountId},
     keystore::FilesystemKeyStore,
     rpc::Endpoint,
     transaction::{OutputNote, TransactionRequestBuilder},
+};
+use miden_clob::common::{
+    delete_keystore_and_store, instantiate_client, price_to_swap_note, setup_accounts_and_faucets,
 };
 use miden_crypto::rand::FeltRng;
 
@@ -50,11 +46,11 @@ impl Default for MarketMakerConfig {
     fn default() -> Self {
         Self {
             spread_percentage: 0.5,
-            num_levels: 5,
+            num_levels: 25, // Increased from 5 to 25 levels per side (50 total orders)
             base_quantity: 1.0,
             quantity_variance: 0.3,
             price_variance: 0.1,
-            update_interval_secs: 60,
+            update_interval_secs: 30, // Set to 30 seconds as requested
         }
     }
 }
@@ -288,8 +284,10 @@ impl MarketMaker {
 
     async fn generate_and_submit_real_orders(&mut self, eth_price: f64) -> Result<()> {
         info!(
-            "Generating real SWAP notes around ETH price ${:.2}",
-            eth_price
+            "Generating {} real SWAP notes around ETH price ${:.2} ({} levels per side)",
+            self.config.num_levels * 2,
+            eth_price,
+            self.config.num_levels
         );
 
         // Load environment variables
@@ -371,8 +369,11 @@ impl MarketMaker {
                 client.submit_transaction(tx).await?;
 
                 info!(
-                    "✅ Submitted BID transaction: {:.4} ETH @ ${:.2}",
-                    eth_quantity, bid_price
+                    "✅ Submitted BID transaction {}/{}: {:.4} ETH @ ${:.2}",
+                    level + 1,
+                    self.config.num_levels,
+                    eth_quantity,
+                    bid_price
                 );
             }
 
@@ -446,8 +447,11 @@ impl MarketMaker {
                 let tx = client.new_transaction(creator_account, req).await?;
                 client.submit_transaction(tx).await?;
                 info!(
-                    "✅ Submitted ASK transaction: {:.4} ETH @ ${:.2}",
-                    eth_quantity, ask_price
+                    "✅ Submitted ASK transaction {}/{}: {:.4} ETH @ ${:.2}",
+                    level + 1,
+                    self.config.num_levels,
+                    eth_quantity,
+                    ask_price
                 );
             }
 
@@ -456,7 +460,7 @@ impl MarketMaker {
 
         // Submit orders to server
         for (i, note) in orders.iter().enumerate() {
-            let note_data = crate::note_serialization::serialize_note(note)?;
+            let note_data = note_serialization::serialize_note(note)?;
 
             let submit_request = serde_json::json!({
                 "note_data": note_data
@@ -585,7 +589,7 @@ async fn main() -> Result<()> {
         .with_env_filter("info,miden_clob=debug")
         .init();
 
-    info!("Starting Miden CLOB Market Maker");
+    info!("Starting Miden CLOB Market Maker (Enhanced Order Generation)");
 
     // Parse command line arguments
     let args: Vec<String> = std::env::args().collect();
@@ -593,14 +597,14 @@ async fn main() -> Result<()> {
     let is_once_mode =
         args.len() > 1 && (args[1] == "--once" || (args.len() > 2 && args[2] == "--once"));
 
-    // Configuration
+    // Enhanced configuration for more orders
     let config = MarketMakerConfig {
         spread_percentage: 1.0,   // 1% spread
-        num_levels: 3,            // 3 levels per side
+        num_levels: 25,           // 25 levels per side = 50 total orders
         base_quantity: 0.5,       // 0.5 ETH base size
         quantity_variance: 0.4,   // ±40% quantity variance
         price_variance: 0.05,     // ±5% price variance
-        update_interval_secs: 30, // Update every 30 seconds
+        update_interval_secs: 15, // Update every 15 seconds (as requested)
     };
 
     let server_url = "http://localhost:3000".to_string();
@@ -631,9 +635,13 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    println!("🎯 Market Maker Configuration:");
+    println!("🎯 Enhanced Market Maker Configuration:");
     println!("  📊 Spread: {:.1}%", market_maker.config.spread_percentage);
     println!("  📈 Levels per side: {}", market_maker.config.num_levels);
+    println!(
+        "  🎯 Total orders per cycle: {}",
+        market_maker.config.num_levels * 2
+    );
     println!(
         "  💰 Base quantity: {:.2} ETH",
         market_maker.config.base_quantity
