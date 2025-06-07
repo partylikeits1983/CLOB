@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
         }
 
         // Wait 1 second before next cycle
-        sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_secs(1)).await;
     }
 }
 
@@ -480,6 +480,14 @@ async fn execute_batch_blockchain_match_simplified(
         }
     }
 
+    // Force database sync to ensure all changes are immediately visible for next iteration
+    if let Err(e) = db.force_sync().await {
+        error!("Failed to sync database after successful batch: {}", e);
+        // Continue as this is not critical for the transaction itself
+    } else {
+        info!("✅ Database synced successfully after batch execution");
+    }
+
     Ok(tx_id_hex)
 }
 
@@ -687,6 +695,17 @@ async fn execute_blockchain_match_simplified(
         }
     }
 
+    // Force database sync to ensure all changes are immediately visible for next iteration
+    if let Err(e) = db.force_sync().await {
+        error!(
+            "Failed to sync database after successful individual match: {}",
+            e
+        );
+        // Continue as this is not critical for the transaction itself
+    } else {
+        info!("✅ Database synced successfully after individual match execution");
+    }
+
     Ok(tx_id_hex)
 }
 
@@ -807,6 +826,15 @@ async fn insert_leftover_note_to_db(db: &Database, leftover_note: &Note) -> Resu
         "✅ Added leftover note {} back to order book",
         leftover_note.id().to_hex()
     );
+
+    // Force database sync to ensure leftover note is immediately visible
+    if let Err(e) = db.force_sync().await {
+        error!(
+            "Failed to sync database after inserting leftover note: {}",
+            e
+        );
+        // Continue as the note was still inserted
+    }
 
     Ok(())
 }

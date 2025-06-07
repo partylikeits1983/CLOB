@@ -130,6 +130,22 @@ impl Database {
         let pool = SqlitePool::connect(database_url).await?;
 
         let db = Self { pool };
+
+        // Configure SQLite for better consistency and performance
+        println!("Configuring SQLite settings...");
+        sqlx::query("PRAGMA journal_mode = WAL")
+            .execute(&db.pool)
+            .await?;
+        sqlx::query("PRAGMA synchronous = NORMAL")
+            .execute(&db.pool)
+            .await?;
+        sqlx::query("PRAGMA cache_size = 1000")
+            .execute(&db.pool)
+            .await?;
+        sqlx::query("PRAGMA temp_store = memory")
+            .execute(&db.pool)
+            .await?;
+
         println!("Running database migration...");
         db.migrate().await?;
         println!("Database migration completed successfully!");
@@ -823,5 +839,21 @@ impl Database {
         }
 
         Ok(records)
+    }
+
+    /// Force SQLite to checkpoint WAL file and sync to disk
+    /// This ensures all pending database changes are immediately visible to subsequent reads
+    pub async fn force_sync(&self) -> Result<()> {
+        // Force WAL checkpoint to ensure all changes are written to main database file
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&self.pool)
+            .await?;
+
+        // Force synchronous write to disk
+        sqlx::query("PRAGMA synchronous = FULL")
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
     }
 }
