@@ -27,7 +27,7 @@ cargo test -- --ignored
 
 Running specific test
 ```
-cargo test --release  partial_fill_counter_party_swap_notes_with_matching_algorithm -- --exact --nocapture
+cargo test --release  swap_note_edge_case_test -- --exact --nocapture
 ```
 
 

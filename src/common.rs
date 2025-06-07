@@ -908,7 +908,10 @@ pub fn try_match_swapp_notes(
     // If one side is offering exactly what the other side wants
     // (or vice-versa) then both orders are fully matched.
     // ──────────────────────────────────────────────────────────────
-    if offer1_raw == want2_raw || offer2_raw == want1_raw {
+    let quantities_match =
+        offer1_raw.amount() == want2_raw.amount() && offer2_raw.amount() == want1_raw.amount();
+
+    if quantities_match && (offer1_raw == want2_raw || offer2_raw == want1_raw) {
         println!("complete fill with arb");
         // build the two P2ID notes (no leftover swap note)
         let note1_creator = creator_of(note1_in);
@@ -965,7 +968,7 @@ pub fn try_match_swapp_notes(
         }));
     }
 
-    println!("##############################################\n\n");
+    // println!("##############################################\n\n");
     let note1_swap_cnt = note1_in.inputs().values()[8].as_int();
     let note2_swap_cnt = note2_in.inputs().values()[8].as_int();
     println!("SWAP COUNT: {:?}", note1_swap_cnt);
@@ -1068,21 +1071,6 @@ pub fn try_match_swapp_notes(
     )
     .unwrap();
 
-    println!("p2id 1: {:?}", p2id_output_note1.id());
-    println!("p2id serial num: {:?}", p2id_output_note1.serial_num());
-    println!(
-        "p2id recipient: {:?}",
-        p2id_output_note1.recipient().digest()
-    );
-    println!(
-        "p2id asset id: {:?}",
-        p2id_note1_output_requested_asset.faucet_id()
-    );
-    println!(
-        "p2id asset amount: {:?}",
-        p2id_note1_output_requested_asset.amount()
-    );
-
     let p2id_output_note2 = create_p2id_note(
         matcher,
         note2_creator,
@@ -1092,18 +1080,6 @@ pub fn try_match_swapp_notes(
         note2_p2id_serial_num,
     )
     .unwrap();
-
-    println!("p2id 2: {:?}", p2id_output_note2.id());
-    println!("p2id 2: {:?}", p2id_output_note2.serial_num());
-    println!("p2id 2: {:?}", p2id_output_note2.recipient().digest());
-    println!(
-        "p2id asset id: {:?}",
-        p2id_note2_output_requested_asset.faucet_id()
-    );
-    println!(
-        "p2id asset amount: {:?}",
-        p2id_note2_output_requested_asset.amount()
-    );
 
     let (offer1_raw, want1_raw) = decompose_swapp_note(note1_in)?;
     let (offer2_raw, want2_raw) = decompose_swapp_note(note2_in)?;

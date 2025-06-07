@@ -15,7 +15,7 @@ use miden_clob::{
 use uuid::Uuid;
 
 // Maximum number of order pairs to match in a single batch
-const MAX_BATCH_SIZE: usize = 120; // Configurable - can match up to 120 orders (60 pairs)
+const MAX_BATCH_SIZE: usize = 50; // Configurable - can match up to 50 orders (25 pairs)
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -165,8 +165,15 @@ async fn run_matching_cycle(
         all_matches.len()
     );
 
-    // Try to execute all matches with binary search approach
-    match execute_batch_with_binary_search(&all_matches, matcher_id, endpoint, db).await {
+    // Limit batch size to MAX_BATCH_SIZE
+    let matches_to_process = if all_matches.len() > MAX_BATCH_SIZE {
+        &all_matches[..MAX_BATCH_SIZE]
+    } else {
+        &all_matches
+    };
+
+    // Try to execute matches with binary search approach
+    match execute_batch_with_binary_search(matches_to_process, matcher_id, endpoint, db).await {
         Ok(matches_executed) => {
             info!("✅ Successfully executed {} matches", matches_executed);
             Ok(matches_executed)
@@ -179,6 +186,7 @@ async fn run_matching_cycle(
 }
 
 // Binary search approach: try batch, if it fails, divide in half and try smaller batches
+// Always re-fetch fresh data from database to ensure orders still exist
 fn execute_batch_with_binary_search<'a>(
     matches: &'a [(
         miden_clob::common::MatchedSwap,
@@ -196,13 +204,68 @@ fn execute_batch_with_binary_search<'a>(
             return Ok(0);
         }
 
+        // Before processing, validate that all orders in this batch still exist in the database
+        info!(
+            "🔍 Validating {} matches against current database state",
+            matches.len()
+        );
+        let mut valid_matches = Vec::new();
+
+        // Re-fetch fresh data from database to ensure orders still exist
+        let current_open_orders = match db.get_open_swap_notes().await {
+            Ok(orders) => orders,
+            Err(e) => {
+                error!("Failed to fetch current open orders for validation: {}", e);
+                return Ok(0);
+            }
+        };
+
+        // Create a set of currently open note IDs for quick lookup
+        let open_note_ids: std::collections::HashSet<String> = current_open_orders
+            .iter()
+            .map(|record| record.note_id.clone())
+            .collect();
+
+        // Filter matches to only include those where both orders still exist
+        for (swap_data, record1, record2, i, j) in matches {
+            if open_note_ids.contains(&record1.note_id) && open_note_ids.contains(&record2.note_id)
+            {
+                valid_matches.push((swap_data.clone(), record1.clone(), record2.clone(), *i, *j));
+            } else {
+                info!(
+                    "📝 Skipping stale match: {} <-> {} (one or both orders no longer exist)",
+                    record1.note_id, record2.note_id
+                );
+            }
+        }
+
+        if valid_matches.is_empty() {
+            info!("📝 All matches were stale - no valid matches remaining");
+            return Ok(0);
+        }
+
+        if valid_matches.len() != matches.len() {
+            info!(
+                "📝 Filtered {} stale matches, {} valid matches remaining",
+                matches.len() - valid_matches.len(),
+                valid_matches.len()
+            );
+        }
+
         // Try to execute the full batch first
-        match execute_batch_blockchain_match_simplified(matches, matcher_id, endpoint.clone(), db)
-            .await
+        match execute_batch_blockchain_match_simplified(
+            &valid_matches,
+            matcher_id,
+            endpoint.clone(),
+            db,
+        )
+        .await
         {
             Ok(_tx_id) => {
                 info!("✅ Full batch executed successfully");
-                return Ok(matches.len());
+                // Return immediately after successful batch - do not continue binary search
+                // This allows the main loop to restart with fresh data from database
+                return Ok(valid_matches.len());
             }
             Err(e) => {
                 info!("❌ Full batch failed: {}, trying binary search approach", e);
@@ -210,9 +273,9 @@ fn execute_batch_with_binary_search<'a>(
         }
 
         // If batch fails and we have more than 1 match, try binary search
-        if matches.len() > 1 {
-            let mid = matches.len() / 2;
-            let (left_half, right_half) = matches.split_at(mid);
+        if valid_matches.len() > 1 {
+            let mid = valid_matches.len() / 2;
+            let (left_half, right_half) = valid_matches.split_at(mid);
 
             info!(
                 "🔍 Binary search: trying left half with {} matches",
@@ -221,6 +284,18 @@ fn execute_batch_with_binary_search<'a>(
             let left_result =
                 execute_batch_with_binary_search(left_half, matcher_id, endpoint.clone(), db).await;
 
+            // If left half succeeded, return immediately without trying right half
+            // This ensures we restart with fresh data after any successful transaction
+            if let Ok(left_count) = left_result {
+                if left_count > 0 {
+                    info!(
+                        "✅ Left half succeeded with {} matches, restarting with fresh data",
+                        left_count
+                    );
+                    return Ok(left_count);
+                }
+            }
+
             info!(
                 "🔍 Binary search: trying right half with {} matches",
                 right_half.len()
@@ -228,16 +303,11 @@ fn execute_batch_with_binary_search<'a>(
             let right_result =
                 execute_batch_with_binary_search(right_half, matcher_id, endpoint, db).await;
 
-            // Return the sum of successful matches from both halves
-            match (left_result, right_result) {
-                (Ok(left_count), Ok(right_count)) => Ok(left_count + right_count),
-                (Ok(left_count), Err(_)) => Ok(left_count),
-                (Err(_), Ok(right_count)) => Ok(right_count),
-                (Err(left_err), Err(_)) => Err(left_err), // Return one of the errors
-            }
+            // Return the result from right half (either success or failure)
+            right_result
         } else {
-            // Single match - try individual execution following the test pattern
-            let (swap_data, record1, record2, _, _) = &matches[0];
+            // Single match - try individual execution
+            let (swap_data, record1, record2, _, _) = &valid_matches[0];
             info!(
                 "🎯 Executing single match: {} <-> {}",
                 record1.note_id, record2.note_id
@@ -254,23 +324,12 @@ fn execute_batch_with_binary_search<'a>(
                 }
                 Err(e) => {
                     error!("❌ Single match failed: {}", e);
-                    // Track failure for both notes
-                    if let Err(db_err) =
-                        handle_match_failure(db, &record1.note_id, &e.to_string()).await
-                    {
-                        error!(
-                            "Failed to track failure for note {}: {}",
-                            record1.note_id, db_err
-                        );
-                    }
-                    if let Err(db_err) =
-                        handle_match_failure(db, &record2.note_id, &e.to_string()).await
-                    {
-                        error!(
-                            "Failed to track failure for note {}: {}",
-                            record2.note_id, db_err
-                        );
-                    }
+                    // Do not add orders to failed order database per user request
+                    // Just log the error and continue
+                    warn!(
+                        "Skipping failed match between {} and {} - will retry in next cycle",
+                        record1.note_id, record2.note_id
+                    );
                     Err(e)
                 }
             }
@@ -712,7 +771,7 @@ async fn execute_blockchain_match_simplified(
 async fn save_p2id_notes_to_db(
     db: &Database,
     swap_data: &miden_clob::common::MatchedSwap,
-    tx_id: &str,
+    _tx_id: &str,
 ) -> Result<()> {
     // Save P2ID note from note1 to note2
     let p2id_1_to_2_serialized = serialize_note(&swap_data.p2id_from_1_to_2)?;
@@ -839,44 +898,4 @@ async fn insert_leftover_note_to_db(db: &Database, leftover_note: &Note) -> Resu
     Ok(())
 }
 
-async fn handle_match_failure(db: &Database, note_id: &str, failure_reason: &str) -> Result<()> {
-    // Increment the failure count for this note
-    match db.increment_failure_count(note_id).await {
-        Ok(failure_count) => {
-            info!("📊 Note {} failure count: {}", note_id, failure_count);
-
-            // If failure count exceeds 3, move to failed table
-            if failure_count > 3 {
-                warn!(
-                    "🚫 Note {} has failed {} times, moving to failed orders table",
-                    note_id, failure_count
-                );
-
-                match db.move_to_failed_table(note_id, failure_reason).await {
-                    Ok(_) => {
-                        info!(
-                            "✅ Successfully moved note {} to failed orders table",
-                            note_id
-                        );
-                    }
-                    Err(e) => {
-                        error!(
-                            "❌ Failed to move note {} to failed orders table: {}",
-                            note_id, e
-                        );
-                        return Err(e);
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            error!(
-                "❌ Failed to increment failure count for note {}: {}",
-                note_id, e
-            );
-            return Err(e);
-        }
-    }
-
-    Ok(())
-}
+// Removed handle_match_failure function - no longer adding orders to failed order database

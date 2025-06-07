@@ -90,7 +90,7 @@ case $choice in
         ;;
     3)
         echo "🔧 Setting up accounts and faucets..."
-        cargo run --bin populate -- --setup
+        cargo run --bin --release --bin populate -- --setup
         ;;
     4)
         echo "📊 Populating orders..."
