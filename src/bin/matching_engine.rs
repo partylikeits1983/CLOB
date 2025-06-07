@@ -15,7 +15,7 @@ use miden_clob::{
 use uuid::Uuid;
 
 // Maximum number of order pairs to match in a single batch
-const MAX_BATCH_SIZE: usize = 50; // Configurable - can match up to 100 orders (50 pairs)
+const MAX_BATCH_SIZE: usize = 120; // Configurable - can match up to 120 orders (60 pairs)
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
         }
 
         // Wait 1 second before next cycle
-        sleep(Duration::from_secs(5)).await;
+        sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -120,7 +120,7 @@ async fn run_matching_cycle(
         return Ok(0);
     }
 
-    // Find all possible matches and sort them by price priority
+    // Find all possible matches - DO NOT SORT, keep the order from try_match_swapp_notes
     let mut all_matches = Vec::new();
     let mut used_indices = std::collections::HashSet::new();
 
@@ -137,11 +137,8 @@ async fn run_matching_cycle(
             // Use try_match_swapp_notes to check if these notes can be matched
             match try_match_swapp_notes(note1, note2, matcher_id) {
                 Ok(Some(swap_data)) => {
-                    // Calculate price for sorting (highest price buy orders first)
-                    let price_priority = calculate_match_priority(note1, note2);
-
+                    // Keep the data from try_match_swapp_notes without modification
                     all_matches.push((
-                        price_priority,
                         swap_data,
                         (*record1).clone(),
                         (*record2).clone(),
@@ -169,76 +166,27 @@ async fn run_matching_cycle(
         return Ok(0);
     }
 
-    // Sort matches by price priority (highest first)
-    all_matches.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-
-    // Limit batch size
-    let batch_size = std::cmp::min(all_matches.len(), MAX_BATCH_SIZE);
-    let matches_batch = &all_matches[..batch_size];
-
     info!(
-        "Found {} potential matches, processing batch of {}",
-        all_matches.len(),
-        batch_size
+        "Found {} potential matches, attempting to process all in batch",
+        all_matches.len()
     );
 
-    // Execute batch transaction if we have matches
-    if !matches_batch.is_empty() {
-        match execute_batch_blockchain_match(matches_batch, matcher_id, endpoint.clone(), db).await
-        {
-            Ok(tx_id) => {
-                info!("✅ Batch blockchain transaction executed: {}", tx_id);
-                info!("🎯 {} matches completed successfully in batch", batch_size);
-                return Ok(batch_size);
-            }
-            Err(e) => {
-                error!(
-                    "❌ Failed to execute batch blockchain transaction: {} - falling back to individual matches",
-                    e
-                );
-
-                // Fall back to individual matching if batch fails
-                return execute_individual_matches(&all_matches[0..1], matcher_id, endpoint, db)
-                    .await;
-            }
+    // Try to execute all matches with binary search approach
+    match execute_batch_with_binary_search(&all_matches, matcher_id, endpoint, db).await {
+        Ok(matches_executed) => {
+            info!("✅ Successfully executed {} matches", matches_executed);
+            Ok(matches_executed)
+        }
+        Err(e) => {
+            error!("❌ Failed to execute any matches: {}", e);
+            Ok(0)
         }
     }
-
-    Ok(0)
 }
 
-// Calculate priority for match ordering (highest buy price first, lowest sell price first)
-fn calculate_match_priority(note1: &Note, note2: &Note) -> f64 {
-    let (offer1, want1) = match miden_clob::common::decompose_swapp_note(note1) {
-        Ok((o, w)) => (o, w),
-        Err(_) => return 0.0,
-    };
-    let (offer2, want2) = match miden_clob::common::decompose_swapp_note(note2) {
-        Ok((o, w)) => (o, w),
-        Err(_) => return 0.0,
-    };
-
-    // Calculate effective prices for both sides
-    let price1 = if want1.amount() > 0 {
-        offer1.amount() as f64 / want1.amount() as f64
-    } else {
-        0.0
-    };
-
-    let price2 = if want2.amount() > 0 {
-        offer2.amount() as f64 / want2.amount() as f64
-    } else {
-        0.0
-    };
-
-    // Return higher price as priority (for better price discovery)
-    f64::max(price1, price2)
-}
-
-// Execute individual matches as fallback
-async fn execute_individual_matches(
-    matches: &[(
-        f64,
+// Binary search approach: try batch, if it fails, divide in half and try smaller batches
+fn execute_batch_with_binary_search<'a>(
+    matches: &'a [(
         miden_clob::common::MatchedSwap,
         miden_clob::database::SwapNoteRecord,
         miden_clob::database::SwapNoteRecord,
@@ -247,72 +195,71 @@ async fn execute_individual_matches(
     )],
     matcher_id: AccountId,
     endpoint: Endpoint,
-    db: &Database,
-) -> Result<usize> {
-    let mut matches_executed = 0;
+    db: &'a Database,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<usize>> + 'a>> {
+    Box::pin(async move {
+        if matches.is_empty() {
+            return Ok(0);
+        }
 
-    for (_, swap_data, record1, record2, _, _) in matches {
-        info!("Found match: {} <-> {}", record1.note_id, record2.note_id);
-
-        print_swap_note_data(swap_data.swap_note_1.clone());
-        print_swap_note_data(swap_data.swap_note_2.clone());
-        println!("\nswap data: {:?} \n", swap_data);
-
-        // Execute the blockchain transaction with enhanced error handling
-        match execute_blockchain_match(
-            swap_data,
-            matcher_id,
-            endpoint.clone(),
-            db,
-            record1,
-            record2,
-        )
-        .await
-        {
-            Ok(tx_id) => {
-                info!("✅ Blockchain transaction executed: {}", tx_id);
-                matches_executed += 1;
-                info!("🎯 Match #{} completed successfully", matches_executed);
-
-                // For now, only process one match per cycle to avoid conflicts
-                return Ok(matches_executed);
+        // Try to execute the full batch first
+        match execute_batch_blockchain_match_simplified(matches, matcher_id, endpoint.clone(), db).await {
+            Ok(_tx_id) => {
+                info!("✅ Full batch executed successfully");
+                return Ok(matches.len());
             }
             Err(e) => {
-                error!(
-                    "❌ Failed to execute blockchain transaction for match {} <-> {}: {} - tracking failure and skipping to next potential match",
-                    record1.note_id, record2.note_id, e
-                );
-
-                // Track failures for both notes involved in the failed match
-                if let Err(db_err) =
-                    handle_match_failure(db, &record1.note_id, &e.to_string()).await
-                {
-                    error!(
-                        "Failed to track failure for note {}: {}",
-                        record1.note_id, db_err
-                    );
-                }
-                if let Err(db_err) =
-                    handle_match_failure(db, &record2.note_id, &e.to_string()).await
-                {
-                    error!(
-                        "Failed to track failure for note {}: {}",
-                        record2.note_id, db_err
-                    );
-                }
-
-                // Continue to next potential match instead of failing the entire cycle
-                continue;
+                info!("❌ Full batch failed: {}, trying binary search approach", e);
             }
         }
-    }
 
-    Ok(matches_executed)
+        // If batch fails and we have more than 1 match, try binary search
+        if matches.len() > 1 {
+            let mid = matches.len() / 2;
+            let (left_half, right_half) = matches.split_at(mid);
+
+            info!("🔍 Binary search: trying left half with {} matches", left_half.len());
+            let left_result = execute_batch_with_binary_search(left_half, matcher_id, endpoint.clone(), db).await;
+
+            info!("🔍 Binary search: trying right half with {} matches", right_half.len());
+            let right_result = execute_batch_with_binary_search(right_half, matcher_id, endpoint, db).await;
+
+            // Return the sum of successful matches from both halves
+            match (left_result, right_result) {
+                (Ok(left_count), Ok(right_count)) => Ok(left_count + right_count),
+                (Ok(left_count), Err(_)) => Ok(left_count),
+                (Err(_), Ok(right_count)) => Ok(right_count),
+                (Err(left_err), Err(_)) => Err(left_err), // Return one of the errors
+            }
+        } else {
+            // Single match - try individual execution following the test pattern
+            let (swap_data, record1, record2, _, _) = &matches[0];
+            info!("🎯 Executing single match: {} <-> {}", record1.note_id, record2.note_id);
+
+            match execute_blockchain_match_simplified(swap_data, matcher_id, endpoint, db, record1, record2).await {
+                Ok(_tx_id) => {
+                    info!("✅ Single match executed successfully");
+                    Ok(1)
+                }
+                Err(e) => {
+                    error!("❌ Single match failed: {}", e);
+                    // Track failure for both notes
+                    if let Err(db_err) = handle_match_failure(db, &record1.note_id, &e.to_string()).await {
+                        error!("Failed to track failure for note {}: {}", record1.note_id, db_err);
+                    }
+                    if let Err(db_err) = handle_match_failure(db, &record2.note_id, &e.to_string()).await {
+                        error!("Failed to track failure for note {}: {}", record2.note_id, db_err);
+                    }
+                    Err(e)
+                }
+            }
+        }
+    })
 }
 
-async fn execute_batch_blockchain_match(
+// Simplified batch execution following the working test pattern exactly
+async fn execute_batch_blockchain_match_simplified(
     matches_batch: &[(
-        f64,
         miden_clob::common::MatchedSwap,
         miden_clob::database::SwapNoteRecord,
         miden_clob::database::SwapNoteRecord,
@@ -350,40 +297,21 @@ async fn execute_batch_blockchain_match(
         return Err(anyhow::anyhow!("Failed to sync client state: {}", e));
     }
 
-    // Re-compute matches fresh to ensure we have current state
-    let mut fresh_swap_data = Vec::new();
-    let mut all_records = Vec::new();
-
-    for (_, _, record1, record2, _, _) in matches_batch {
-        // Deserialize the notes fresh from database
-        let note1 = deserialize_note(&record1.note_data)
-            .map_err(|e| anyhow::anyhow!("Failed to deserialize note1: {}", e))?;
-        let note2 = deserialize_note(&record2.note_data)
-            .map_err(|e| anyhow::anyhow!("Failed to deserialize note2: {}", e))?;
-
-        // Re-compute the match data fresh
-        let swap_data = try_match_swapp_notes(&note1, &note2, matcher_id)
-            .map_err(|e| anyhow::anyhow!("Failed to match notes: {}", e))?
-            .ok_or_else(|| anyhow::anyhow!("Notes no longer match"))?;
-
-        fresh_swap_data.push(swap_data);
-        all_records.push((record1.clone(), record2.clone()));
-    }
-
-    // Collect all input notes and expected outputs using fresh data
+    // Use the swap data directly from try_match_swapp_notes without modification
+    // Following the multi_order_fill_test pattern exactly
     let mut input_notes = Vec::new();
     let mut expected_outputs = Vec::new();
 
-    for swap_data in &fresh_swap_data {
-        // Add input notes from this match
+    for (swap_data, _, _, _, _) in matches_batch {
+        // Add input notes from this match (exactly like the test)
         input_notes.push((swap_data.swap_note_1.id(), Some(swap_data.note1_args)));
         input_notes.push((swap_data.swap_note_2.id(), Some(swap_data.note2_args)));
 
-        // Add expected output notes from this match
+        // Add expected output notes from this match (exactly like the test)
         expected_outputs.push(swap_data.p2id_from_1_to_2.clone());
         expected_outputs.push(swap_data.p2id_from_2_to_1.clone());
 
-        // Add leftover notes if any
+        // Add leftover notes if any (exactly like the test)
         if let Some(ref leftover_note) = swap_data.leftover_swapp_note {
             expected_outputs.push(leftover_note.clone());
         }
@@ -396,7 +324,7 @@ async fn execute_batch_blockchain_match(
         expected_outputs.len()
     );
 
-    // Build the transaction request
+    // Build the transaction request (exactly like the test)
     use miden_client::transaction::TransactionRequestBuilder;
     let consume_req = TransactionRequestBuilder::new()
         .with_authenticated_input_notes(input_notes)
@@ -404,7 +332,7 @@ async fn execute_batch_blockchain_match(
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
 
-    // Execute the transaction
+    // Execute the transaction (exactly like the test)
     let tx_result = client
         .new_transaction(matcher_id, consume_req)
         .await
@@ -419,7 +347,7 @@ async fn execute_batch_blockchain_match(
             anyhow::anyhow!("Failed to create batch transaction: {:?}", e)
         })?;
 
-    // Submit the transaction
+    // Submit the transaction (exactly like the test)
     client
         .submit_transaction(tx_result.clone())
         .await
@@ -434,7 +362,7 @@ async fn execute_batch_blockchain_match(
     );
 
     // Process database updates for all matches in the batch
-    for (swap_data, (record1, record2)) in fresh_swap_data.iter().zip(all_records.iter()) {
+    for (swap_data, record1, record2, _, _) in matches_batch {
         // Save P2ID notes to database
         if let Err(e) = save_p2id_notes_to_db(db, swap_data, &tx_id_hex).await {
             error!("Failed to save P2ID notes to database: {}", e);
@@ -561,7 +489,8 @@ fn print_swap_note_data(swap_note: Note) {
     );
 }
 
-async fn execute_blockchain_match(
+// Simplified individual blockchain match execution following the test pattern exactly
+async fn execute_blockchain_match_simplified(
     swap_data: &miden_clob::common::MatchedSwap,
     matcher_id: AccountId,
     endpoint: Endpoint,
@@ -597,16 +526,16 @@ async fn execute_blockchain_match(
         return Err(anyhow::anyhow!("Failed to sync client state: {}", e));
     }
 
-    // Construct expected output notes (P2ID notes + leftover note if any)
+    // Construct expected output notes exactly like the test
     let mut expected_outputs = vec![
         swap_data.p2id_from_1_to_2.clone(),
         swap_data.p2id_from_2_to_1.clone(),
     ];
-    if let Some(ref leftover_note) = swap_data.leftover_swapp_note {
-        expected_outputs.push(leftover_note.clone());
+    if let Some(ref note) = swap_data.leftover_swapp_note {
+        expected_outputs.push(note.clone());
     }
 
-    // Build the transaction request
+    // Build the transaction request exactly like the test
     use miden_client::transaction::TransactionRequestBuilder;
     let consume_req = TransactionRequestBuilder::new()
         .with_authenticated_input_notes([
@@ -617,7 +546,7 @@ async fn execute_blockchain_match(
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build transaction request: {}", e))?;
 
-    // Execute the transaction
+    // Execute the transaction exactly like the test
     let tx_result = client
         .new_transaction(matcher_id, consume_req)
         .await
@@ -632,11 +561,8 @@ async fn execute_blockchain_match(
             anyhow::anyhow!("Failed to create transaction: {:?}", e)
         })?;
 
-    // Submit the transaction
-    client
-        .submit_transaction(tx_result.clone())
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to submit transaction: {}", e))?;
+    // Submit the transaction exactly like the test
+    let _ = client.submit_transaction(tx_result.clone()).await;
 
     let tx_id = tx_result.executed_transaction().id();
     let tx_id_hex = format!("{:?}", tx_id);

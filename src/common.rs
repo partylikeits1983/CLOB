@@ -1235,18 +1235,42 @@ pub fn generate_depth_chart(
     _faucet_eth_id: &AccountId,
     account_names: &[(AccountId, &str)],
 ) {
+    generate_depth_chart_with_options(swap_notes, faucet_usdc_id, _faucet_eth_id, account_names, true);
+}
+
+/// Generates and prints a depth chart with optional detailed orderbook table
+pub fn generate_depth_chart_with_options(
+    swap_notes: &[Note],
+    faucet_usdc_id: &AccountId,
+    _faucet_eth_id: &AccountId,
+    account_names: &[(AccountId, &str)],
+    show_detailed_orderbook: bool,
+) {
+    let output = generate_depth_chart_string(swap_notes, faucet_usdc_id, _faucet_eth_id, account_names, show_detailed_orderbook);
+    print!("{}", output);
+}
+
+/// Generates a depth chart as a string with optional detailed orderbook table
+pub fn generate_depth_chart_string(
+    swap_notes: &[Note],
+    faucet_usdc_id: &AccountId,
+    _faucet_eth_id: &AccountId,
+    account_names: &[(AccountId, &str)],
+    show_detailed_orderbook: bool,
+) -> String {
+    let mut output = String::new();
     // ANSI color codes
     const GREEN: &str = "\x1b[32m";
     const RED: &str = "\x1b[31m";
     const RESET: &str = "\x1b[0m";
     const BOLD: &str = "\x1b[1m";
 
-    println!("\n╔══════════════════════════════════════════════════════════╗");
-    println!(
-        "║{}                 USDC/ETH ORDERBOOK DEPTH CHART           {}║",
+    output.push_str("\n╔══════════════════════════════════════════════════════════╗\n");
+    output.push_str(&format!(
+        "║{}                 USDC/ETH ORDERBOOK DEPTH CHART           {}║\n",
         BOLD, RESET
-    );
-    println!("╚══════════════════════════════════════════════════════════╝");
+    ));
+    output.push_str("╚══════════════════════════════════════════════════════════╝\n");
 
     // Separate bids and asks
     let mut bids = Vec::new();
@@ -1346,79 +1370,82 @@ pub fn generate_depth_chart(
     };
 
     // Print market summary
-    println!(
-        "\n════════════════════════════════════════════════════════════════════════════════════════════╗"
+    output.push_str(
+        "\n════════════════════════════════════════════════════════════════════════════════════════════╗\n"
     );
-    println!(
-        "║                                MARKET SUMMARY                                             ║"
+    output.push_str(
+        "║                                MARKET SUMMARY                                             ║\n"
     );
-    println!(
-        "╠═══════════════════════════════════════════════════════════════════════════════════════════╣"
+    output.push_str(
+        "╠═══════════════════════════════════════════════════════════════════════════════════════════╣\n"
     );
-    println!("║ {:<76}  ║", spread_info);
-    println!(
-        "╚═══════════════════════════════════════════════════════════════════════════════════════════╝"
-    );
-
-    // Print the depth chart header
-    println!(
-        "\n╔═══════════════════════════════════════════════════════════════════════════════════╗"
-    );
-    println!(
-        "║{}                               DEPTH CHART                                         {}║",
-        BOLD, RESET
-    );
-    println!(
-        "╠═══════════════════════════════════════════════════════════════════════════════════╣"
-    );
-    println!(
-        "║{}          BIDS (Buy Orders)            {}║{}          ASKS (Sell Orders)               {}║",
-        GREEN, RESET, RED, RESET
-    );
-    println!(
-        "╠═════════╦════════╦═════════╦══════════╬═════════╦════════╦═════════╦══════════════╣"
-    );
-    println!(
-        "║ Price   ║ ETH    ║ Total   ║ Trader   ║ Price   ║ ETH    ║ Total   ║ Trader       ║"
-    );
-    println!(
-        "╠═════════╬════════╬═════════╬══════════╬═════════╬════════╬═════════╬══════════════╣"
+    output.push_str(&format!("║ {:<76}  ║\n", spread_info));
+    output.push_str(
+        "╚═══════════════════════════════════════════════════════════════════════════════════════════╝\n"
     );
 
-    // Determine how many rows to display
-    let max_rows = std::cmp::max(bids.len(), asks.len());
+    // Print the detailed orderbook table only if requested
+    if show_detailed_orderbook {
+        // Print the depth chart header
+        output.push_str(
+            "\n╔═══════════════════════════════════════════════════════════════════════════════════╗\n"
+        );
+        output.push_str(&format!(
+            "║{}                               DEPTH CHART                                         {}║\n",
+            BOLD, RESET
+        ));
+        output.push_str(
+            "╠═══════════════════════════════════════════════════════════════════════════════════╣\n"
+        );
+        output.push_str(&format!(
+            "║{}          BIDS (Buy Orders)            {}║{}          ASKS (Sell Orders)               {}║\n",
+            GREEN, RESET, RED, RESET
+        ));
+        output.push_str(
+            "╠═════════╦════════╦═════════╦══════════╬═════════╦════════╦═════════╦══════════════╣\n"
+        );
+        output.push_str(
+            "║ Price   ║ ETH    ║ Total   ║ Trader   ║ Price   ║ ETH    ║ Total   ║ Trader       ║\n"
+        );
+        output.push_str(
+            "╠═════════╬════════╬═════════╬══════════╬═════════╬════════╬═════════╬══════════════╣\n"
+        );
 
-    // Print the depth chart rows
-    for i in 0..max_rows {
-        let bid_info = if i < bids.len() {
-            format!(
-                "║{} {:<7.2} ║ {:<6.2} ║ {:<7.2} ║ {:<8} {}║",
-                GREEN, bid_prices[i], bid_volumes[i], bid_cumulative[i], bid_traders[i], RESET
-            )
-        } else {
-            "║         ║        ║         ║          ║".to_string()
-        };
+        // Determine how many rows to display
+        let max_rows = std::cmp::max(bids.len(), asks.len());
 
-        let ask_info = if i < asks.len() {
-            format!(
-                " {:<7.2} ║ {:<6.2} ║ {:<7.2} ║ {:<12} ║",
-                ask_prices[i], ask_volumes[i], ask_cumulative[i], ask_traders[i]
-            )
-        } else {
-            "         ║        ║         ║              ║".to_string()
-        };
+        // Print the depth chart rows
+        for i in 0..max_rows {
+            let bid_info = if i < bids.len() {
+                format!(
+                    "║{} {:<7.2} ║ {:<6.2} ║ {:<7.2} ║ {:<8} {}║",
+                    GREEN, bid_prices[i], bid_volumes[i], bid_cumulative[i], bid_traders[i], RESET
+                )
+            } else {
+                "║         ║        ║         ║          ║".to_string()
+            };
 
-        println!("{}{}", bid_info, ask_info);
+            let ask_info = if i < asks.len() {
+                format!(
+                    " {:<7.2} ║ {:<6.2} ║ {:<7.2} ║ {:<12} ║",
+                    ask_prices[i], ask_volumes[i], ask_cumulative[i], ask_traders[i]
+                )
+            } else {
+                "         ║        ║         ║              ║".to_string()
+            };
+
+            output.push_str(&format!("{}{}\n", bid_info, ask_info));
+        }
+
+        output.push_str(
+            "╚═════════╩════════╩═════════╩══════════╩═════════╩════════╩═════════╩══════════════╝\n"
+        );
     }
 
-    println!(
-        "╚═════════╩════════╩═════════╩══════════╩═════════╩════════╩═════════╩══════════════╝"
-    );
-
     // Create a visual representation of the depth chart
-    println!("\n╔══════════════════════════════════════════════════════════╗");
-    println!("║                 VISUAL DEPTH CHART                       ║");
-    println!("╚══════════════════════════════════════════════════════════╝");
+    output.push_str("\n╔══════════════════════════════════════════════════════════╗\n");
+    output.push_str("║                 VISUAL DEPTH CHART                       ║\n");
+    output.push_str("╚══════════════════════════════════════════════════════════╝\n");
 
     // Define chart dimensions
     let chart_width = 60;
@@ -1497,9 +1524,9 @@ pub fn generate_depth_chart(
     }
 
     // Print the chart
-    println!("  Volume");
+    output.push_str("  Volume\n");
     for y in 0..chart_height {
-        print!(
+        output.push_str(&format!(
             "{:>8} ",
             if y == 0 {
                 format!("{:.1}", max_cumulative)
@@ -1510,59 +1537,61 @@ pub fn generate_depth_chart(
             } else {
                 "".to_string()
             }
-        );
+        ));
 
         for x in 0..chart_width {
             match chart[y][x] {
-                'B' => print!("{}█{}", GREEN, RESET), // Green for bids
-                'A' => print!("{}█{}", RED, RESET),   // Red for asks
-                c => print!("{}", c),
+                'B' => output.push_str(&format!("{}█{}", GREEN, RESET)), // Green for bids
+                'A' => output.push_str(&format!("{}█{}", RED, RESET)),   // Red for asks
+                c => output.push(c),
             }
         }
-        println!();
+        output.push('\n');
     }
 
     // Print the price axis
-    print!("         ");
+    output.push_str("         ");
     let mut x = 0;
     while x < chart_width {
         if x == 0 || x == chart_width - 1 || x == chart_width / 2 {
             let price = min_price + (x as f64 / (chart_width - 1) as f64) * (max_price - min_price);
-            print!("{:.0}", price);
+            output.push_str(&format!("{:.0}", price));
             x += 4; // Skip a few positions to avoid overlap
         } else if x % 10 == 0 {
-            print!("│");
+            output.push('│');
             x += 1;
         } else {
-            print!(" ");
+            output.push(' ');
             x += 1;
         }
     }
-    println!("\n         Price (USDC per ETH)");
+    output.push_str("\n         Price (USDC per ETH)\n");
 
     // Print summary statistics
-    println!("\n╔══════════════════════════════════════════════════════════╗");
-    println!("║                  ORDERBOOK STATISTICS                    ║");
-    println!("╠══════════════════════════════════╦═══════════════════════╣");
-    println!(
-        "║ Total number of orders           ║ {:<19}   ║",
+    output.push_str("\n╔══════════════════════════════════════════════════════════╗\n");
+    output.push_str("║                  ORDERBOOK STATISTICS                    ║\n");
+    output.push_str("╠══════════════════════════════════╦═══════════════════════╣\n");
+    output.push_str(&format!(
+        "║ Total number of orders           ║ {:<19}   ║\n",
         swap_notes.len()
-    );
-    println!(
-        "║ Number of bid orders             ║ {:<19}   ║",
+    ));
+    output.push_str(&format!(
+        "║ Number of bid orders             ║ {:<19}   ║\n",
         bids.len()
-    );
-    println!(
-        "║ Number of ask orders             ║ {:<19}   ║",
+    ));
+    output.push_str(&format!(
+        "║ Number of ask orders             ║ {:<19}   ║\n",
         asks.len()
-    );
-    println!(
-        "║ Total ETH volume (bids)          ║ {:<19.4}   ║",
+    ));
+    output.push_str(&format!(
+        "║ Total ETH volume (bids)          ║ {:<19.4}   ║\n",
         bid_cumulative.last().unwrap_or(&0.0)
-    );
-    println!(
-        "║ Total ETH volume (asks)          ║ {:<19.4}   ║",
+    ));
+    output.push_str(&format!(
+        "║ Total ETH volume (asks)          ║ {:<19.4}   ║\n",
         ask_cumulative.last().unwrap_or(&0.0)
-    );
-    println!("╚══════════════════════════════════╩═══════════════════════╝");
+    ));
+    output.push_str("╚══════════════════════════════════╩═══════════════════════╝\n");
+
+    output
 }

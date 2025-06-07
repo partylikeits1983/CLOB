@@ -38,6 +38,7 @@ thiserror = "1.0"
 base64 = "0.22"
 dotenv = "0.15"
 hex = "0.4"
+clap = { version = "4.0", features = ["derive"] }
 
 [features]
 client = []

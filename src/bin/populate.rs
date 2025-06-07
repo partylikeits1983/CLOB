@@ -48,7 +48,7 @@ impl Default for MarketMakerConfig {
             spread_percentage: 0.5,
             num_levels: 25, // Increased from 5 to 25 levels per side (50 total orders)
             base_quantity: 1.0,
-            quantity_variance: 0.3,
+            quantity_variance: 0.5,
             price_variance: 0.1,
             update_interval_secs: 30, // Set to 30 seconds as requested
         }
@@ -599,10 +599,10 @@ async fn main() -> Result<()> {
 
     // Enhanced configuration for more orders
     let config = MarketMakerConfig {
-        spread_percentage: 1.0,   // 1% spread
-        num_levels: 25,           // 25 levels per side = 50 total orders
+        spread_percentage: 0.5,   // 1% spread
+        num_levels: 40,           // 25 levels per side = 50 total orders
         base_quantity: 0.5,       // 0.5 ETH base size
-        quantity_variance: 0.4,   // ±40% quantity variance
+        quantity_variance: 0.5,   // ±40% quantity variance
         price_variance: 0.05,     // ±5% price variance
         update_interval_secs: 15, // Update every 15 seconds (as requested)
     };

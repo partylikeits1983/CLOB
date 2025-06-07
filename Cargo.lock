@@ -2037,6 +2037,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
+ "clap",
  "dotenv",
  "hex",
  "miden-assembly",
