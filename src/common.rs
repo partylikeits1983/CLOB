@@ -989,8 +989,10 @@ pub fn try_match_swapp_notes(
     println!("new_amount_b_note2: {:?}", new_amount_b_note2);
 
     // ──one side must be fully filled ──────────────────────────
-    let note1_filled = new_amount_a_note1 == 0 && new_amount_b_note1 == 0;
-    let note2_filled = new_amount_a_note2 == 0 && new_amount_b_note2 == 0;
+    // let note1_filled = new_amount_a_note1 == 0 && new_amount_b_note1 == 0;
+    // let note2_filled = new_amount_a_note2 == 0 && new_amount_b_note2 == 0;
+    let note1_filled = offer2_raw.amount() >= want1_raw.amount();
+    let note2_filled = offer1_raw.amount() >= want2_raw.amount();
 
     // both notes still have leftover amounts → not a valid match
     if !note1_filled && !note2_filled {
@@ -1107,6 +1109,7 @@ pub fn try_match_swapp_notes(
         && new_amount_a_note2 == 0
         && new_amount_b_note2 == 0
     {
+        println!("complete fill");
         return Ok(Some(MatchedSwap {
             p2id_from_1_to_2: p2id_output_note1,
             p2id_from_2_to_1: p2id_output_note2,

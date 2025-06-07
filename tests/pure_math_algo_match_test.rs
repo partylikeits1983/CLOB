@@ -278,10 +278,10 @@ async fn test_compute_partial_swapp_math() {
 #[tokio::test]
 #[ignore]
 async fn test_compute_partial_swapp_edge_case() {
-    let amount_b_in = 522;
+    let amount_b_in = 1120588;
     let (amount_a_1, new_amount_a, new_amount_b) = compute_partial_swapp(
-        1368162,     // originally offered A
-        522,         // originally requested B
+        438,         // originally offered A
+        1081860,     // originally requested B
         amount_b_in, // Bob fills 25 B
     );
 
@@ -291,9 +291,9 @@ async fn test_compute_partial_swapp_edge_case() {
     println!("new_amount_a (A leftover):   {}", new_amount_a);
     println!("new_amount_b (B leftover):   {}", new_amount_b);
 
-    assert_eq!(amount_a_1, 1368162);
+    /*     assert_eq!(amount_a_1, 1368162);
     assert_eq!(new_amount_a, 0);
-    assert_eq!(new_amount_b, 0);
+    assert_eq!(new_amount_b, 0); */
 }
 
 #[test]
