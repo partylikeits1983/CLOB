@@ -1235,7 +1235,13 @@ pub fn generate_depth_chart(
     _faucet_eth_id: &AccountId,
     account_names: &[(AccountId, &str)],
 ) {
-    generate_depth_chart_with_options(swap_notes, faucet_usdc_id, _faucet_eth_id, account_names, true);
+    generate_depth_chart_with_options(
+        swap_notes,
+        faucet_usdc_id,
+        _faucet_eth_id,
+        account_names,
+        true,
+    );
 }
 
 /// Generates and prints a depth chart with optional detailed orderbook table
@@ -1246,7 +1252,13 @@ pub fn generate_depth_chart_with_options(
     account_names: &[(AccountId, &str)],
     show_detailed_orderbook: bool,
 ) {
-    let output = generate_depth_chart_string(swap_notes, faucet_usdc_id, _faucet_eth_id, account_names, show_detailed_orderbook);
+    let output = generate_depth_chart_string(
+        swap_notes,
+        faucet_usdc_id,
+        _faucet_eth_id,
+        account_names,
+        show_detailed_orderbook,
+    );
     print!("{}", output);
 }
 

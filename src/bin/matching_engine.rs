@@ -138,13 +138,7 @@ async fn run_matching_cycle(
             match try_match_swapp_notes(note1, note2, matcher_id) {
                 Ok(Some(swap_data)) => {
                     // Keep the data from try_match_swapp_notes without modification
-                    all_matches.push((
-                        swap_data,
-                        (*record1).clone(),
-                        (*record2).clone(),
-                        i,
-                        j,
-                    ));
+                    all_matches.push((swap_data, (*record1).clone(), (*record2).clone(), i, j));
                     used_indices.insert(i);
                     used_indices.insert(j);
                 }
@@ -203,7 +197,9 @@ fn execute_batch_with_binary_search<'a>(
         }
 
         // Try to execute the full batch first
-        match execute_batch_blockchain_match_simplified(matches, matcher_id, endpoint.clone(), db).await {
+        match execute_batch_blockchain_match_simplified(matches, matcher_id, endpoint.clone(), db)
+            .await
+        {
             Ok(_tx_id) => {
                 info!("✅ Full batch executed successfully");
                 return Ok(matches.len());
@@ -218,11 +214,19 @@ fn execute_batch_with_binary_search<'a>(
             let mid = matches.len() / 2;
             let (left_half, right_half) = matches.split_at(mid);
 
-            info!("🔍 Binary search: trying left half with {} matches", left_half.len());
-            let left_result = execute_batch_with_binary_search(left_half, matcher_id, endpoint.clone(), db).await;
+            info!(
+                "🔍 Binary search: trying left half with {} matches",
+                left_half.len()
+            );
+            let left_result =
+                execute_batch_with_binary_search(left_half, matcher_id, endpoint.clone(), db).await;
 
-            info!("🔍 Binary search: trying right half with {} matches", right_half.len());
-            let right_result = execute_batch_with_binary_search(right_half, matcher_id, endpoint, db).await;
+            info!(
+                "🔍 Binary search: trying right half with {} matches",
+                right_half.len()
+            );
+            let right_result =
+                execute_batch_with_binary_search(right_half, matcher_id, endpoint, db).await;
 
             // Return the sum of successful matches from both halves
             match (left_result, right_result) {
@@ -234,9 +238,16 @@ fn execute_batch_with_binary_search<'a>(
         } else {
             // Single match - try individual execution following the test pattern
             let (swap_data, record1, record2, _, _) = &matches[0];
-            info!("🎯 Executing single match: {} <-> {}", record1.note_id, record2.note_id);
+            info!(
+                "🎯 Executing single match: {} <-> {}",
+                record1.note_id, record2.note_id
+            );
 
-            match execute_blockchain_match_simplified(swap_data, matcher_id, endpoint, db, record1, record2).await {
+            match execute_blockchain_match_simplified(
+                swap_data, matcher_id, endpoint, db, record1, record2,
+            )
+            .await
+            {
                 Ok(_tx_id) => {
                     info!("✅ Single match executed successfully");
                     Ok(1)
@@ -244,11 +255,21 @@ fn execute_batch_with_binary_search<'a>(
                 Err(e) => {
                     error!("❌ Single match failed: {}", e);
                     // Track failure for both notes
-                    if let Err(db_err) = handle_match_failure(db, &record1.note_id, &e.to_string()).await {
-                        error!("Failed to track failure for note {}: {}", record1.note_id, db_err);
+                    if let Err(db_err) =
+                        handle_match_failure(db, &record1.note_id, &e.to_string()).await
+                    {
+                        error!(
+                            "Failed to track failure for note {}: {}",
+                            record1.note_id, db_err
+                        );
                     }
-                    if let Err(db_err) = handle_match_failure(db, &record2.note_id, &e.to_string()).await {
-                        error!("Failed to track failure for note {}: {}", record2.note_id, db_err);
+                    if let Err(db_err) =
+                        handle_match_failure(db, &record2.note_id, &e.to_string()).await
+                    {
+                        error!(
+                            "Failed to track failure for note {}: {}",
+                            record2.note_id, db_err
+                        );
                     }
                     Err(e)
                 }

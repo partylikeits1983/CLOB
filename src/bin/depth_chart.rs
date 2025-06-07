@@ -1,14 +1,15 @@
 use chrono::Local;
+use clap::Parser;
 use miden_client::{Felt, account::AccountId};
-use miden_clob::{
-    common::generate_depth_chart, database::Database, note_serialization::deserialize_note,
+use miden_clob::{database::Database, note_serialization::deserialize_note};
+use std::{
+    env,
+    io::{self, Write},
 };
-use std::{env, io::{self, Write}};
 use tokio::{
     self,
     time::{Duration, sleep},
 };
-use clap::Parser;
 
 #[derive(Parser)]
 #[command(name = "depth_chart")]
@@ -23,7 +24,7 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments
     let cli = Cli::parse();
-    
+
     // Load environment variables
     dotenv::dotenv().ok();
 
@@ -57,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         // Clear and prepare the display buffer
         let mut display_buffer = String::new();
-        
+
         // Display header with timestamp
         let now = Local::now();
         display_buffer.push_str(&format!(
@@ -78,13 +79,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match display_depth_chart(&database, &usdc_faucet, &eth_faucet, cli.show_orders).await {
             Ok((order_count, chart_content)) => {
                 display_buffer.push_str(&chart_content);
-                
+
                 if order_count == 0 {
                     display_buffer.push_str("📭 No open orders found in the database.\n");
-                    display_buffer.push_str("💡 Run the populate script first: cargo run --bin populate\n");
+                    display_buffer
+                        .push_str("💡 Run the populate script first: cargo run --bin populate\n");
                 } else {
                     display_buffer.push_str("\n💡 Tips:\n");
-                    display_buffer.push_str("   • Run matching engine: cargo run --bin matching_engine\n");
+                    display_buffer
+                        .push_str("   • Run matching engine: cargo run --bin matching_engine\n");
                     display_buffer.push_str("   • Add more orders: cargo run --bin populate\n");
                     display_buffer.push_str("   • Press Ctrl+C to exit this monitor\n");
                 }
@@ -128,7 +131,7 @@ async fn display_depth_chart(
     show_orders: bool,
 ) -> Result<(usize, String), Box<dyn std::error::Error>> {
     let mut output = String::new();
-    
+
     // Get all open swap notes from database
     let open_orders = database.get_open_swap_notes().await?;
 
@@ -146,7 +149,10 @@ async fn display_depth_chart(
         output.push_str("║             Note ID                ║   Offered Asset  ║ Requested Asset  ║   Type    ║     Creator       ║\n");
         output.push_str("╠════════════════════════════════════╬══════════════════╬══════════════════╬═══════════╬═══════════════════╣\n");
     } else {
-        output.push_str(&format!("📊 Processing {} orders for depth chart\n\n", open_orders.len()));
+        output.push_str(&format!(
+            "📊 Processing {} orders for depth chart\n\n",
+            open_orders.len()
+        ));
     }
 
     let mut swap_notes = Vec::new();
@@ -158,7 +164,10 @@ async fn display_depth_chart(
         let note = match deserialize_note(&order.note_data) {
             Ok(note) => note,
             Err(e) => {
-                output.push_str(&format!("⚠️  Failed to deserialize note {}: {}\n", order.note_id, e));
+                output.push_str(&format!(
+                    "⚠️  Failed to deserialize note {}: {}\n",
+                    order.note_id, e
+                ));
                 continue;
             }
         };
@@ -244,7 +253,13 @@ async fn display_depth_chart(
         .collect();
 
     // Generate the depth chart and capture its output
-    let chart_output = generate_depth_chart_to_string(&swap_notes, usdc_faucet, eth_faucet, &account_name_refs, show_orders);
+    let chart_output = generate_depth_chart_to_string(
+        &swap_notes,
+        usdc_faucet,
+        eth_faucet,
+        &account_name_refs,
+        show_orders,
+    );
     output.push_str(&chart_output);
 
     Ok((open_orders.len(), output))
@@ -259,5 +274,11 @@ fn generate_depth_chart_to_string(
     show_orders: bool,
 ) -> String {
     // Use the new string-based function
-    miden_clob::common::generate_depth_chart_string(swap_notes, usdc_faucet, eth_faucet, account_names, show_orders)
+    miden_clob::common::generate_depth_chart_string(
+        swap_notes,
+        usdc_faucet,
+        eth_faucet,
+        account_names,
+        show_orders,
+    )
 }
