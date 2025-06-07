@@ -904,6 +904,67 @@ pub fn try_match_swapp_notes(
         }
     }
 
+    // ──────────────────────────────────────────────────────────────
+    // If one side is offering exactly what the other side wants
+    // (or vice-versa) then both orders are fully matched.
+    // ──────────────────────────────────────────────────────────────
+    if offer1_raw == want2_raw || offer2_raw == want1_raw {
+        println!("complete fill with arb");
+        // build the two P2ID notes (no leftover swap note)
+        let note1_creator = creator_of(note1_in);
+        let note2_creator = creator_of(note2_in);
+
+        let note1_swap_cnt = note1_in.inputs().values()[8].as_int();
+        let note2_swap_cnt = note2_in.inputs().values()[8].as_int();
+
+        let note1_p2id_serial_num = get_p2id_serial_num(note1_in.serial_num(), note1_swap_cnt + 1);
+        let note2_p2id_serial_num = get_p2id_serial_num(note2_in.serial_num(), note2_swap_cnt + 1);
+
+        let p2id_from_1_to_2 = create_p2id_note(
+            matcher,
+            note1_creator,
+            vec![want1_raw.into()], // exactly what note-1 wanted
+            NoteType::Public,
+            Felt::new(0),
+            note1_p2id_serial_num,
+        )
+        .unwrap();
+
+        let p2id_from_2_to_1 = create_p2id_note(
+            matcher,
+            note2_creator,
+            vec![want2_raw.into()], // exactly what note-2 wanted
+            NoteType::Public,
+            Felt::new(0),
+            note2_p2id_serial_num,
+        )
+        .unwrap();
+
+        // note-args are simply the full “want” amounts
+        let note1_args = [
+            Felt::new(0),
+            Felt::new(0),
+            Felt::new(0),
+            Felt::new(want1_raw.amount()),
+        ];
+        let note2_args = [
+            Felt::new(0),
+            Felt::new(0),
+            Felt::new(0),
+            Felt::new(want2_raw.amount()),
+        ];
+
+        return Ok(Some(MatchedSwap {
+            p2id_from_1_to_2,
+            p2id_from_2_to_1,
+            leftover_swapp_note: None,
+            swap_note_1: note1_in.clone(),
+            swap_note_2: note2_in.clone(),
+            note1_args,
+            note2_args,
+        }));
+    }
+
     println!("##############################################\n\n");
     let note1_swap_cnt = note1_in.inputs().values()[8].as_int();
     let note2_swap_cnt = note2_in.inputs().values()[8].as_int();

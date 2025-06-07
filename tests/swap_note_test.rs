@@ -560,8 +560,8 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     let swap_note_1 = create_order_simple(
         &mut client,
         trader_1.id(),
-        FungibleAsset::new(faucet_a.id(), 1054196).unwrap().into(),
-        FungibleAsset::new(faucet_b.id(), 418).unwrap().into(),
+        FungibleAsset::new(faucet_a.id(), 501).unwrap().into(),
+        FungibleAsset::new(faucet_b.id(), 1288572).unwrap().into(),
     )
     .await
     .unwrap();
@@ -572,8 +572,8 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     let swap_note_2 = create_order_simple(
         &mut client,
         trader_2.id(),
-        FungibleAsset::new(faucet_b.id(), 515).unwrap().into(), // offered (use exact amount from working match)
-        FungibleAsset::new(faucet_a.id(), 1286985).unwrap().into(), // wanted (use exact amount from working match)
+        FungibleAsset::new(faucet_b.id(), 1299093).unwrap().into(), // offered (use exact amount from working match)
+        FungibleAsset::new(faucet_a.id(), 501).unwrap().into(), // wanted (use exact amount from working match)
     )
     .await
     .unwrap();
