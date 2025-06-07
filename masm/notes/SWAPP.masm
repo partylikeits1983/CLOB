@@ -535,6 +535,8 @@ proc.execute_SWAPp
         # => [payback_tag, aux, note_type, SWAPp_RECIPIENT]
         # => [tag, aux, note_type, execution_hint, RECIPIENT]
 
+        push.222 debug.stack drop
+
         # SWAPp' creation
         call.wallet::create_note
         # => [note_idx, pad(15) ...]

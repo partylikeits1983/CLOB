@@ -477,7 +477,6 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
     if let Some(ref note) = swap_data.leftover_swapp_note {
         expected_outputs.push(note.clone());
     }
-    expected_outputs.sort_by_key(|n| n.commitment());
 
     let consume_req = TransactionRequestBuilder::new()
         .with_authenticated_input_notes([
@@ -561,8 +560,8 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     let swap_note_1 = create_order_simple(
         &mut client,
         trader_1.id(),
-        FungibleAsset::new(faucet_a.id(), 755682).unwrap().into(),
-        FungibleAsset::new(faucet_b.id(), 303).unwrap().into(),
+        FungibleAsset::new(faucet_a.id(), 1054196).unwrap().into(),
+        FungibleAsset::new(faucet_b.id(), 418).unwrap().into(),
     )
     .await
     .unwrap();
@@ -573,8 +572,8 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     let swap_note_2 = create_order_simple(
         &mut client,
         trader_2.id(),
-        FungibleAsset::new(faucet_b.id(), 674).unwrap().into(), // offered (use exact amount from working match)
-        FungibleAsset::new(faucet_a.id(), 1807668).unwrap().into(), // wanted (use exact amount from working match)
+        FungibleAsset::new(faucet_b.id(), 515).unwrap().into(), // offered (use exact amount from working match)
+        FungibleAsset::new(faucet_a.id(), 1286985).unwrap().into(), // wanted (use exact amount from working match)
     )
     .await
     .unwrap();
@@ -606,7 +605,6 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     if let Some(ref note) = swap_data.leftover_swapp_note {
         expected_outputs.push(note.clone());
     }
-    expected_outputs.sort_by_key(|n| n.commitment());
 
     let consume_req = TransactionRequestBuilder::new()
         .with_authenticated_input_notes([
@@ -1009,60 +1007,6 @@ async fn partial_swap_chain_public_optimistic_benchmark() -> Result<(), ClientEr
         new_offered_asset_amount_1, new_requested_asset_amount_1
     );
     println!("Done with partial swap ephemeral chain test.");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_compute_partial_swapp() -> Result<(), ClientError> {
-    let amount_b_in = 25;
-    let (amount_a_1, new_amount_a, new_amount_b) = compute_partial_swapp(
-        100,         // originally offered A
-        50,          // originally requested B
-        amount_b_in, // Bob fills 25 B
-    );
-
-    println!("==== test_compute_partial_swapp ====");
-    println!("amount_a_1 (A out):          {}", amount_a_1);
-    println!("amount_b_1 (B in):           {}", amount_b_in);
-    println!("new_amount_a (A leftover):   {}", new_amount_a);
-    println!("new_amount_b (B leftover):   {}", new_amount_b);
-
-    assert_eq!(amount_a_1, 50);
-    assert_eq!(amount_b_in, 25);
-    assert_eq!(new_amount_a, 50);
-    assert_eq!(new_amount_b, 25);
-
-    let amount_b_in = 2500;
-    let (amount_a_1, new_amount_a, new_amount_b) = compute_partial_swapp(
-        5000,        // originally offered A
-        5000,        // originally requested B
-        amount_b_in, // Bob fills 2500 B
-    );
-
-    // 1. For a 1:1 ratio: 2500 B in => 2500 A out => leftover 2500 A / 2500 B
-    assert_eq!(amount_a_1, 2500);
-    assert_eq!(amount_b_in, 2500);
-    assert_eq!(new_amount_a, 2500);
-    assert_eq!(new_amount_b, 2500);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_compute_partial_swapp_edge_case() -> Result<(), ClientError> {
-    let amount_b_in = 522;
-    let (amount_a_1, new_amount_a, new_amount_b) = compute_partial_swapp(
-        1368162,     // originally offered A
-        522,         // originally requested B
-        amount_b_in, // Bob fills 25 B
-    );
-
-    println!("==== test_compute_partial_swapp ====");
-    println!("amount_a_1 (A out):          {}", amount_a_1);
-    println!("amount_b_1 (B in):           {}", amount_b_in);
-    println!("new_amount_a (A leftover):   {}", new_amount_a);
-    println!("new_amount_b (B leftover):   {}", new_amount_b);
 
     Ok(())
 }

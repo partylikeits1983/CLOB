@@ -136,8 +136,6 @@ async fn run_matching_cycle(
 
                     // Execute the blockchain transaction with enhanced error handling
                     match execute_blockchain_match(
-                        note1,
-                        note2,
                         &swap_data,
                         matcher_id,
                         endpoint.clone(),
@@ -229,8 +227,6 @@ fn print_swap_note_data(swap_note: Note) {
 }
 
 async fn execute_blockchain_match(
-    note1: &miden_client::note::Note,
-    note2: &miden_client::note::Note,
     swap_data: &miden_clob::common::MatchedSwap,
     matcher_id: AccountId,
     endpoint: Endpoint,
@@ -240,8 +236,8 @@ async fn execute_blockchain_match(
 ) -> Result<String> {
     info!(
         "Executing blockchain transaction for match between {} and {}",
-        note1.id().to_hex(),
-        note2.id().to_hex()
+        swap_data.swap_note_1.id().to_hex(),
+        swap_data.swap_note_1.id().to_hex()
     );
 
     let mut client = match instantiate_client(endpoint).await {
@@ -274,14 +270,13 @@ async fn execute_blockchain_match(
     if let Some(ref leftover_note) = swap_data.leftover_swapp_note {
         expected_outputs.push(leftover_note.clone());
     }
-    expected_outputs.sort_by_key(|n| n.commitment());
 
     // Build the transaction request
     use miden_client::transaction::TransactionRequestBuilder;
     let consume_req = TransactionRequestBuilder::new()
         .with_authenticated_input_notes([
-            (note1.id(), Some(swap_data.note1_args)),
-            (note2.id(), Some(swap_data.note2_args)),
+            (swap_data.swap_note_1.id(), Some(swap_data.note1_args)),
+            (swap_data.swap_note_2.id(), Some(swap_data.note2_args)),
         ])
         .with_expected_output_notes(expected_outputs.clone())
         .build()
@@ -322,8 +317,8 @@ async fn execute_blockchain_match(
 
         // Determine which note was partially filled by comparing with the leftover note creator
         let leftover_creator = miden_clob::common::creator_of(leftover_note);
-        let note1_creator = miden_clob::common::creator_of(note1);
-        let _note2_creator = miden_clob::common::creator_of(note2);
+        let note1_creator = miden_clob::common::creator_of(&swap_data.swap_note_1);
+        let _note2_creator = miden_clob::common::creator_of(&swap_data.swap_note_2);
 
         let (partially_filled_record, fully_filled_record) = if leftover_creator == note1_creator {
             (record1, record2)

@@ -5,7 +5,7 @@ use miden_client::{
     asset::FungibleAsset,
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
-    note::{Note, NoteType},
+    note::NoteType,
     rpc::{Endpoint, TonicRpcClient},
     transaction::{OutputNote, TransactionRequestBuilder},
 };
@@ -14,9 +14,8 @@ use tokio::time::sleep;
 use std::sync::Arc;
 
 use miden_clob::common::{
-    compute_partial_swapp, create_p2id_note, create_partial_swap_note, creator_of,
-    decompose_swapp_note, delete_keystore_and_store, generate_depth_chart, get_p2id_serial_num,
-    get_swapp_note, instantiate_client, price_to_swap_note, setup_accounts_and_faucets,
+    compute_partial_swapp, create_p2id_note, create_partial_swap_note, delete_keystore_and_store,
+    get_p2id_serial_num, get_swapp_note, instantiate_client, setup_accounts_and_faucets,
     try_match_swapp_notes, wait_for_note,
 };
 use miden_crypto::rand::FeltRng;
@@ -372,7 +371,6 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
     if let Some(ref note) = swap_data.leftover_swapp_note {
         expected_outputs.push(note.clone());
     }
-    expected_outputs.sort_by_key(|n| n.commitment());
 
     let consume_req = TransactionRequestBuilder::new()
         .with_authenticated_input_notes([
@@ -425,9 +423,9 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
     // -------------------------------------------------------------------------
     // Setup accounts and balances
     let balances = vec![
-        vec![100, 0],   // For account[0] => Alice
-        vec![0, 100],   // For account[0] => Bob
-        vec![100, 100], // For account[0] => matcher
+        vec![100_000_000, 100_000_000], // For account[0] => Alice
+        vec![100_000_000, 100_000_000], // For account[0] => Bob
+        vec![100_000_000, 100_000_000], // For account[0] => matcher
     ];
     let (accounts, faucets) =
         setup_accounts_and_faucets(&mut client, keystore, 3, 2, balances).await?;
@@ -442,8 +440,8 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
     // -------------------------------------------------------------------------
     // STEP 2: Create the SWAP Notes
     // -------------------------------------------------------------------------
-    let swap_note_1_asset_a = FungibleAsset::new(faucet_a.id(), 100).unwrap();
-    let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
+    let swap_note_1_asset_a = FungibleAsset::new(faucet_a.id(), 600).unwrap();
+    let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 1455600).unwrap();
     let swap_note_1_serial_num = client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
         alice_account.id(),         // creator of the order
@@ -455,8 +453,8 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
     )
     .unwrap();
 
-    let swap_note_2_asset_a = FungibleAsset::new(faucet_a.id(), 50).unwrap();
-    let swap_note_2_asset_b = FungibleAsset::new(faucet_b.id(), 50).unwrap();
+    let swap_note_2_asset_a = FungibleAsset::new(faucet_a.id(), 71).unwrap();
+    let swap_note_2_asset_b = FungibleAsset::new(faucet_b.id(), 173737).unwrap();
     let swap_note_2_serial_num = client.rng().draw_word();
     let swap_note_2 = create_partial_swap_note(
         bob_account.id(),
@@ -464,7 +462,7 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
         swap_note_2_asset_b.into(),
         swap_note_2_asset_a.into(),
         swap_note_2_serial_num,
-        0,
+        1,
     )
     .unwrap();
 
@@ -513,7 +511,6 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
     if let Some(ref note) = swap_data.leftover_swapp_note {
         expected_outputs.push(note.clone());
     }
-    expected_outputs.sort_by_key(|n| n.commitment());
 
     let consume_req = TransactionRequestBuilder::new()
         .with_authenticated_input_notes([
@@ -654,7 +651,6 @@ async fn fill_counter_party_swap_notes_complete_fill_algorithm() -> Result<(), C
     if let Some(ref note) = swap_data.leftover_swapp_note {
         expected_outputs.push(note.clone());
     }
-    expected_outputs.sort_by_key(|n| n.commitment());
 
     let consume_req = TransactionRequestBuilder::new()
         .with_authenticated_input_notes([
@@ -814,7 +810,6 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
     if let Some(ref note) = swap_data.leftover_swapp_note {
         expected_outputs.push(note.clone());
     }
-    expected_outputs.sort_by_key(|n| n.commitment());
 
     let consume_req = TransactionRequestBuilder::new()
         .with_unauthenticated_input_notes([
@@ -865,7 +860,6 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
     if let Some(ref note) = swap_data_1.leftover_swapp_note {
         expected_outputs.push(note.clone());
     }
-    expected_outputs.sort_by_key(|n| n.commitment());
 
     let consume_req = TransactionRequestBuilder::new()
         .with_unauthenticated_input_notes([

@@ -79,7 +79,6 @@ pub fn extract_note_info(note: &Note) -> Result<(String, String, u64, String, u6
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn test_serialize_deserialize_roundtrip() {

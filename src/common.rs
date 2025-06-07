@@ -2,13 +2,8 @@ use miden_assembly::{
     Assembler, DefaultSourceManager, LibraryPath,
     ast::{Module, ModuleKind},
 };
-use miden_crypto::dsa::rpo_falcon512::Polynomial;
 use rand::{RngCore, rngs::StdRng};
-use std::{
-    env, fmt, fs,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{env, fmt, fs, path::PathBuf, sync::Arc};
 use tokio::time::{Duration, sleep};
 
 use miden_client::{
@@ -28,10 +23,9 @@ use miden_client::{
     },
     rpc::{Endpoint, TonicRpcClient},
     store::InputNoteRecord,
-    transaction::{OutputNote, TransactionKernel, TransactionRequestBuilder, TransactionScript},
+    transaction::{OutputNote, TransactionKernel, TransactionRequestBuilder},
 };
-use miden_lib::note::utils;
-use miden_objects::{Hasher, NoteError, account::AccountComponent, assembly::Library};
+use miden_objects::{Hasher, NoteError, account::AccountComponent};
 use serde::de::value::Error;
 
 pub fn create_library(
@@ -709,7 +703,7 @@ pub async fn create_public_immutable_contract(
 // Waits for note
 pub async fn wait_for_note(
     client: &mut Client,
-    account_id: &Account,
+    _account_id: &Account,
     expected: &Note,
 ) -> Result<(), ClientError> {
     loop {
@@ -807,9 +801,9 @@ pub struct MatchedSwap {
 
 impl fmt::Debug for MatchedSwap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // --------------------------------------------------------------------
-        // helper: pretty-print all fungible assets inside a note
-        // --------------------------------------------------------------------
+        // ────────────────────────────────────────────────────────────────
+        // helpers
+        // ────────────────────────────────────────────────────────────────
         fn assets_str(note: &Note) -> String {
             note.assets()
                 .iter()
@@ -821,9 +815,6 @@ impl fmt::Debug for MatchedSwap {
                 .join(", ")
         }
 
-        // --------------------------------------------------------------------
-        // helper: pretty-print offered / requested of a SWAPP note
-        // --------------------------------------------------------------------
         fn swapp_str(note: &Note) -> String {
             match decompose_swapp_note(note) {
                 Ok((off, req)) => format!(
@@ -837,7 +828,32 @@ impl fmt::Debug for MatchedSwap {
             }
         }
 
-        // gather the three fields
+        // ────────────────────────────────────────────────────────────────
+        // header lines requested
+        // ────────────────────────────────────────────────────────────────
+        writeln!(
+            f,
+            "swap note 1 serial num: {:?}",
+            self.swap_note_1.serial_num()
+        )?;
+        writeln!(
+            f,
+            "swap note 2 serial num: {:?}",
+            self.swap_note_2.serial_num()
+        )?;
+        if let Some(note) = &self.leftover_swapp_note {
+            writeln!(
+                f,
+                "leftover swap digest: {}",
+                note.recipient().digest().to_hex()
+            )?;
+        } else {
+            writeln!(f, "None")?;
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        // original structured debug info
+        // ────────────────────────────────────────────────────────────────
         let p2id_1 = format!("[assets: {}]", assets_str(&self.p2id_from_1_to_2));
         let p2id_2 = format!("[assets: {}]", assets_str(&self.p2id_from_2_to_1));
         let swapp = self.leftover_swapp_note.as_ref().map(swapp_str);

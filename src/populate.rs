@@ -98,11 +98,11 @@ impl MarketMaker {
 
             // Setup accounts with balances for market making + matcher account
             let balances = vec![
-                vec![50_000, 50],       // Market maker 1
-                vec![40_000, 40],       // Market maker 2
-                vec![30_000, 30],       // Market maker 3
-                vec![20_000, 20],       // Market maker 4
-                vec![10_000_000, 1000], // Matcher account with large balances
+                vec![50_000, 100],            // Market maker 1
+                vec![40_000, 100],            // Market maker 2
+                vec![30_000, 100],            // Market maker 3
+                vec![20_000, 100],            // Market maker 4
+                vec![10_000_000, 10_000_000], // Matcher account with large balances
             ];
 
             let (accounts, faucets) = setup_accounts_and_faucets(

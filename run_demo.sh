@@ -46,10 +46,14 @@ echo ""
 echo "4. Populate orders (optional):"
 echo "   cargo run --release --bin populate -- --once"
 echo ""
-echo "5. Test the API:"
+echo ""
+echo "5. Depth Chart (optional):"
+echo "   cargo run --bin depth_chart"
+echo ""
+echo "6. Test the API:"
 echo "   cargo run --example api_example"
 echo ""
-echo "6. Check the API endpoints:"
+echo "7. Check the API endpoints:"
 echo "   curl http://localhost:3000/health"
 echo "   curl http://localhost:3000/stats"
 echo ""
@@ -67,8 +71,9 @@ echo "1) Start the server"
 echo "2) Start the matching engine"
 echo "3) Setup accounts (one time only)"
 echo "4) Populate orders (server must be running)"
-echo "5) Run API example (server must be running)"
-echo "6) Exit"
+echo "5) Run the terminal depth chart UI"
+echo "6) Run API example (server must be running)"
+echo "7) Exit"
 echo ""
 read -p "Choose option (1-6): " choice
 
@@ -81,7 +86,7 @@ case $choice in
     2)
         echo "🤖 Starting matching engine..."
         echo "ℹ️  Make sure the .env file exists (run setup first if needed)"
-        cargo run --bin matching_engine
+        cargo run --release --bin matching_engine
         ;;
     3)
         echo "🔧 Setting up accounts and faucets..."
@@ -89,13 +94,17 @@ case $choice in
         ;;
     4)
         echo "📊 Populating orders..."
-        cargo run --bin populate -- --once
+        cargo run --release --bin populate -- --once
         ;;
     5)
+        echo "📊 Starting Depth Chart terminal UI..."
+        cargo run --release --bin depth_chart
+        ;;
+    6)
         echo "🧪 Running API example..."
         cargo run --example api_example
         ;;
-    6)
+    7)
         echo "👋 Goodbye!"
         exit 0
         ;;

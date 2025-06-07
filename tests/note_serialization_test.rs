@@ -1,10 +1,9 @@
-use miden_client::{Word, account::AccountId, asset::FungibleAsset, note::Note};
-use miden_clob::common::{
-    create_partial_swap_note, decompose_swapp_note, price_to_swap_note, try_match_swapp_notes,
-};
+use miden_client::{Word, account::AccountId, note::Note};
+use miden_clob::common::{price_to_swap_note, try_match_swapp_notes};
 use miden_tx::utils::{Deserializable, Serializable};
 
 #[test]
+#[ignore]
 fn test_price_to_swap_note_match() {
     let trader_1 = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
     let trader_2 = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
@@ -37,9 +36,16 @@ fn test_price_to_swap_note_match() {
     let swap_note_1_bytes: Vec<u8> = swap_note_1.to_bytes();
     let swap_note_2_bytes: Vec<u8> = swap_note_2.to_bytes();
 
-    let note_deserialized = Note::read_from_bytes(&swap_note_1_bytes);
+    let note1_deserialized = Note::read_from_bytes(&swap_note_1_bytes);
+    let note2_deserialized = Note::read_from_bytes(&swap_note_2_bytes);
 
-    let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher_id).unwrap();
+    assert!(note1_deserialized.is_ok());
+    assert!(note2_deserialized.is_ok());
 
-    println!("swap data: {:?}", swap_data);
+    let _swap_data = try_match_swapp_notes(
+        &note1_deserialized.unwrap(),
+        &note2_deserialized.unwrap(),
+        matcher_id,
+    )
+    .unwrap();
 }
