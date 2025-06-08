@@ -599,12 +599,12 @@ async fn main() -> Result<()> {
 
     // Enhanced configuration for more orders
     let config = MarketMakerConfig {
-        spread_percentage: 0.1,   // 1% spread
-        num_levels: 7,            // 25 levels per side = 50 total orders
-        base_quantity: 0.5,       // 0.5 ETH base size
-        quantity_variance: 0.5,   // ±40% quantity variance
-        price_variance: 0.05,     // ±5% price variance
-        update_interval_secs: 15, // Update every 15 seconds (as requested)
+        spread_percentage: 0.1,  // 1% spread
+        num_levels: 20,          // 25 levels per side = 50 total orders
+        base_quantity: 0.5,      // 0.5 ETH base size
+        quantity_variance: 0.5,  // ±40% quantity variance
+        price_variance: 0.05,    // ±5% price variance
+        update_interval_secs: 1, // Update every 15 seconds (as requested)
     };
 
     let server_url = "http://localhost:3000".to_string();
