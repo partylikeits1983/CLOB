@@ -841,6 +841,71 @@ impl Database {
         Ok(records)
     }
 
+    /// Get P2ID notes for a specific recipient account ID
+    pub async fn get_p2id_notes_for_recipient(&self, recipient_account_id: &str) -> Result<Vec<P2IdNoteRecord>> {
+        let rows = sqlx::query("SELECT * FROM p2id_notes WHERE recipient = ? ORDER BY created_at ASC")
+            .bind(recipient_account_id)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut records = Vec::new();
+        for row in rows {
+            let created_at_str: String = row.get("created_at");
+
+            records.push(P2IdNoteRecord {
+                id: row.get("id"),
+                note_id: row.get("note_id"),
+                sender_id: row.get("sender_id"),
+                target_id: row.get("target_id"),
+                recipient: row.get("recipient"),
+                asset_id: row.get("asset_id"),
+                amount: row.get::<i64, _>("amount") as u64,
+                swap_note_id: row.get("swap_note_id"),
+                note_data: row.get("note_data"),
+                created_at: DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&Utc),
+            });
+        }
+
+        Ok(records)
+    }
+
+    /// Get all P2ID notes from the database
+    pub async fn get_all_p2id_notes(&self) -> Result<Vec<P2IdNoteRecord>> {
+        let rows = sqlx::query("SELECT * FROM p2id_notes ORDER BY created_at ASC")
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut records = Vec::new();
+        for row in rows {
+            let created_at_str: String = row.get("created_at");
+
+            records.push(P2IdNoteRecord {
+                id: row.get("id"),
+                note_id: row.get("note_id"),
+                sender_id: row.get("sender_id"),
+                target_id: row.get("target_id"),
+                recipient: row.get("recipient"),
+                asset_id: row.get("asset_id"),
+                amount: row.get::<i64, _>("amount") as u64,
+                swap_note_id: row.get("swap_note_id"),
+                note_data: row.get("note_data"),
+                created_at: DateTime::parse_from_rfc3339(&created_at_str)?.with_timezone(&Utc),
+            });
+        }
+
+        Ok(records)
+    }
+
+    /// Remove a P2ID note from the database (after it's been claimed)
+    pub async fn remove_p2id_note(&self, note_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM p2id_notes WHERE note_id = ?")
+            .bind(note_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
     /// Force SQLite to checkpoint WAL file and sync to disk
     /// This ensures all pending database changes are immediately visible to subsequent reads
     pub async fn force_sync(&self) -> Result<()> {

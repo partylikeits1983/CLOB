@@ -20,6 +20,7 @@ use miden_client::{
 use miden_clob::common::{
     delete_keystore_and_store, instantiate_client, price_to_swap_note, setup_accounts_and_faucets,
 };
+use miden_clob::database::Database;
 use miden_crypto::rand::FeltRng;
 
 #[derive(Debug, Deserialize)]
@@ -62,6 +63,7 @@ struct MarketMaker {
     server_url: String,
     http_client: reqwest::Client,
     is_setup_mode: bool,
+    database: Option<Database>,
 }
 
 impl MarketMaker {
@@ -160,6 +162,10 @@ impl MarketMaker {
             fs::write(".env", env_content)?;
             info!("Saved faucet IDs and matcher account to .env file");
 
+            // Initialize database connection
+            let database_url = "sqlite:./clob.sqlite3";
+            let database = Database::new(database_url).await.ok();
+
             Ok(Self {
                 client: Some(client),
                 accounts,
@@ -167,6 +173,7 @@ impl MarketMaker {
                 server_url,
                 http_client,
                 is_setup_mode: true,
+                database,
             })
         } else {
             // Load from .env file for normal operation
@@ -214,6 +221,10 @@ impl MarketMaker {
                 usdc_faucet_id, eth_faucet_id
             );
 
+            // Initialize database connection
+            let database_url = "sqlite:./clob.sqlite3";
+            let database = Database::new(database_url).await.ok();
+
             Ok(Self {
                 client: Some(client),
                 accounts: Vec::new(), // Will be loaded if needed
@@ -221,6 +232,7 @@ impl MarketMaker {
                 server_url,
                 http_client,
                 is_setup_mode: false,
+                database,
             })
         }
     }
@@ -267,6 +279,11 @@ impl MarketMaker {
         // Trigger server matching
         if let Err(e) = self.trigger_server_matching().await {
             warn!("Failed to trigger server matching: {}", e);
+        }
+
+        // Claim any available P2ID notes
+        if let Err(e) = self.claim_p2id_notes().await {
+            warn!("Failed to claim P2ID notes: {}", e);
         }
 
         // Check server health and stats
@@ -576,6 +593,122 @@ impl MarketMaker {
                 "Failed to trigger server matching: HTTP {}",
                 response.status()
             );
+        }
+
+        Ok(())
+    }
+
+    async fn claim_p2id_notes(&mut self) -> Result<()> {
+        // Only proceed if we have both client and database
+        let (client, database) = match (&mut self.client, &self.database) {
+            (Some(client), Some(database)) => (client, database),
+            _ => {
+                warn!("Client or database not available for claiming P2ID notes");
+                return Ok(());
+            }
+        };
+
+        let mut total_claimed = 0;
+
+        // Get ALL P2ID notes from the database and claim them using their target_id
+        // This is more reliable than trying to match by recipient
+        let all_p2id_notes = match database.get_all_p2id_notes().await {
+            Ok(notes) => notes,
+            Err(e) => {
+                warn!("Failed to query all P2ID notes: {}", e);
+                return Ok(());
+            }
+        };
+
+        if all_p2id_notes.is_empty() {
+            info!("No P2ID notes available to claim");
+            return Ok(());
+        }
+
+        info!("Found {} P2ID notes to process", all_p2id_notes.len());
+
+        for p2id_record in all_p2id_notes {
+            // Use the target_id from the database record - this is the account that should claim the note
+            let target_account_id = match AccountId::from_hex(&p2id_record.target_id) {
+                Ok(id) => id,
+                Err(e) => {
+                    warn!("Invalid target_id {} in P2ID record {}: {}",
+                          p2id_record.target_id, p2id_record.note_id, e);
+                    continue;
+                }
+            };
+
+            // Try to import the target account into the client (it might not exist locally)
+            info!("Importing target account {} for P2ID note {}",
+                  target_account_id.to_hex(), p2id_record.note_id);
+            
+            if let Err(e) = client.import_account_by_id(target_account_id).await {
+                warn!("Failed to import target account {} (may not exist or already imported): {}",
+                      target_account_id.to_hex(), e);
+                // Continue anyway - the account might already be imported or might not be ours
+                continue;
+            }
+
+            // Sync state to ensure the imported account is available
+            if let Err(e) = client.sync_state().await {
+                warn!("Failed to sync client state: {}", e);
+                continue;
+            }
+
+            // Deserialize the note
+            let note = match note_serialization::deserialize_note(&p2id_record.note_data) {
+                Ok(note) => note,
+                Err(e) => {
+                    warn!("Failed to deserialize P2ID note {}: {}", p2id_record.note_id, e);
+                    continue;
+                }
+            };
+
+            info!("Claiming P2ID note {} using target account {}",
+                  p2id_record.note_id, target_account_id.to_hex());
+            
+            // Create transaction to claim the note using the target account
+            let claim_request = match TransactionRequestBuilder::new()
+                .build_consume_notes(vec![note.id()]) {
+                Ok(req) => req,
+                Err(e) => {
+                    warn!("Failed to build consume request for P2ID note {}: {}",
+                          p2id_record.note_id, e);
+                    continue;
+                }
+            };
+            
+            match client.new_transaction(target_account_id, claim_request).await {
+                Ok(tx) => {
+                    match client.submit_transaction(tx).await {
+                        Ok(_) => {
+                            info!("✅ Successfully claimed P2ID note {} using account {}",
+                                  p2id_record.note_id, target_account_id.to_hex());
+                            
+                            // Remove the claimed note from database
+                            if let Err(e) = database.remove_p2id_note(&p2id_record.note_id).await {
+                                warn!("Failed to remove claimed P2ID note from database: {}", e);
+                            }
+                            
+                            total_claimed += 1;
+                        }
+                        Err(e) => {
+                            warn!("Failed to submit P2ID claim transaction for {}: {}",
+                                  p2id_record.note_id, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to create P2ID claim transaction for {}: {}",
+                          p2id_record.note_id, e);
+                }
+            }
+        }
+
+        if total_claimed > 0 {
+            info!("🎉 Successfully claimed {} P2ID notes total", total_claimed);
+        } else {
+            info!("No P2ID notes were successfully claimed");
         }
 
         Ok(())

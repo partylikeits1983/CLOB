@@ -637,6 +637,143 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     Ok(())
 }
 
+
+
+#[tokio::test]
+async fn create_swap_notes_claim_p2id() -> Result<(), ClientError> {
+    // ────────────────────────────────────────────────────────────
+    // 0.  Reset the store and initialize the client
+    // ────────────────────────────────────────────────────────────
+    delete_keystore_and_store().await;
+
+    let endpoint = Endpoint::localhost();
+    let timeout_ms = 10_000;
+    let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
+
+    let mut client = ClientBuilder::new()
+        .with_rpc(rpc_api)
+        .with_filesystem_keystore("./keystore")
+        .in_debug_mode(true)
+        .build()
+        .await?;
+
+    let sync_summary = client.sync_state().await.unwrap();
+    println!("[chain-sync] latest block = {}", sync_summary.block_num);
+
+    // ────────────────────────────────────────────────────────────
+    // 1.  Provision three accounts + two test faucets
+    // ────────────────────────────────────────────────────────────
+    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+
+    let balances = vec![
+        vec![100_000_000, 100_000_000], // trader-1
+        vec![100_000_000, 100_000_000], // trader-2
+        vec![100_000_000, 100_000_000], // matcher
+    ];
+    let (accounts, faucets) =
+        setup_accounts_and_faucets(&mut client, keystore, 3, 2, balances).await?;
+
+    let trader_1 = accounts[0].clone();
+    let trader_2 = accounts[1].clone();
+    let matcher = accounts[2].clone();
+
+    let faucet_a = faucets[0].clone();
+    let faucet_b = faucets[1].clone();
+
+    println!("faucet: {:?}", faucet_a.id().to_hex());
+    println!("faucet: {:?}", faucet_b.id().to_hex());
+    println!("trader_1: {:?}", trader_1.id().to_hex());
+    println!("trader_2: {:?}", trader_2.id().to_hex());
+    // ────────────────────────────────────────────────────────────
+    // 2.  Trader-1:
+    // ────────────────────────────────────────────────────────────
+    let swap_note_1 = create_order_simple(
+        &mut client,
+        trader_1.id(),
+        FungibleAsset::new(faucet_a.id(), 438).unwrap().into(),
+        FungibleAsset::new(faucet_b.id(), 1081860).unwrap().into(),
+    )
+    .await
+    .unwrap();
+
+    // ────────────────────────────────────────────────────────────
+    // 3.  Trader-2:
+    // ────────────────────────────────────────────────────────────
+    let swap_note_2 = create_order_simple(
+        &mut client,
+        trader_2.id(),
+        FungibleAsset::new(faucet_b.id(), 1120588).unwrap().into(), // offered (use exact amount from working match)
+        FungibleAsset::new(faucet_a.id(), 434).unwrap().into(), // wanted (use exact amount from working match)
+    )
+    .await
+    .unwrap();
+
+    // ────────────────────────────────────────────────────────────
+    // 4.  Wait until the two SWAPP notes are visible on-chain
+    // ────────────────────────────────────────────────────────────
+    let _ = get_swapp_note(&mut client, swap_note_1.metadata().tag(), swap_note_1.id()).await;
+    let _ = get_swapp_note(&mut client, swap_note_2.metadata().tag(), swap_note_2.id()).await;
+
+    // ────────────────────────────────────────────────────────────
+    // 5.  Off-chain matcher tries to cross the two orders
+    // ────────────────────────────────────────────────────────────
+    let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher.id())
+        .unwrap()
+        .expect("orders did not cross – test set-up is wrong");
+
+    println!("note args1: {:?}", swap_data.note1_args);
+    println!("note args2: {:?}", swap_data.note2_args);
+
+    // ────────────────────────────────────────────────────────────
+    // 6.  Build the single consume-transaction
+    // ────────────────────────────────────────────────────────────
+    // Expected outputs = 2 P2ID notes (+ optional residual SWAPP note)
+    let mut expected_outputs = vec![
+        swap_data.p2id_from_1_to_2.clone(),
+        swap_data.p2id_from_2_to_1.clone(),
+    ];
+    if let Some(ref note) = swap_data.leftover_swapp_note {
+        expected_outputs.push(note.clone());
+    }
+
+    let consume_req = TransactionRequestBuilder::new()
+        .with_authenticated_input_notes([
+            (swap_data.swap_note_1.id(), Some(swap_data.note1_args)), // maker’s SWAPP note
+            (swap_data.swap_note_2.id(), Some(swap_data.note2_args)), // taker’s SWAPP note
+        ])
+        .with_expected_output_notes(expected_outputs)
+        .build()
+        .unwrap();
+
+    // ────────────────────────────────────────────────────────────
+    // 7.  Submit and confirm
+    // ────────────────────────────────────────────────────────────
+    let tx = client
+        .new_transaction(matcher.id(), consume_req)
+        .await
+        .unwrap();
+    client.submit_transaction(tx).await.unwrap();
+    client.sync_state().await.unwrap();
+
+    // (optional) quick sanity print of post-trade balances
+    let binding = client.get_account(matcher.id()).await.unwrap().unwrap();
+    let matcher_acct = binding.account();
+    println!(
+        "[matcher] balances ⇒ A: {:?}  B: {:?}",
+        matcher_acct.vault().get_balance(faucet_a.id()),
+        matcher_acct.vault().get_balance(faucet_b.id())
+    );
+
+    wait_for_note(&mut client, &trader_1, &swap_data.p2id_from_1_to_2).await.unwrap();
+
+    let claim_p2id_account1 = TransactionRequestBuilder::new().build_consume_notes(vec![swap_data.p2id_from_1_to_2.id()]).unwrap();
+    let tx = client.new_transaction(trader_1.id(), claim_p2id_account1).await.unwrap();
+
+    client.submit_transaction(tx).await.unwrap();
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn swap_note_reclaim_public_test() -> Result<(), ClientError> {
     // Reset the store and initialize the client.

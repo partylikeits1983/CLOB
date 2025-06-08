@@ -27,7 +27,7 @@ cargo test -- --ignored
 
 Running specific test
 ```
-cargo test --release  swap_note_edge_case_test -- --exact --nocapture
+cargo test --release  create_swap_notes_claim_p2id -- --exact --nocapture
 ```
 
 

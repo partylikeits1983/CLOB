@@ -454,5 +454,7 @@ fn match_swap_notes_algo_test() {
 
     let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher_id).unwrap();
 
+    assert!(swap_data.is_some());
+
     println!("swap data: {:?}", swap_data);
 }
