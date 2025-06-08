@@ -444,6 +444,27 @@ pub async fn create_order_simple(
     Ok(swapp_note)
 }
 
+pub fn create_order_simple_testing(
+    trader: AccountId,
+    offered_asset: Asset,
+    requested_asset: Asset,
+) -> Note {
+    let swap_serial_num = Word::default();
+    let swap_count = 0;
+
+    let swapp_note = create_partial_swap_note(
+        trader,
+        trader,
+        offered_asset.into(),
+        requested_asset.into(),
+        swap_serial_num,
+        swap_count,
+    )
+    .unwrap();
+
+    swapp_note
+}
+
 pub fn create_p2id_note(
     sender: AccountId,
     target: AccountId,
@@ -874,21 +895,14 @@ pub fn try_match_swapp_notes(
     let (offer1_raw, want1_raw) = decompose_swapp_note(note1_in)?;
     let (offer2_raw, want2_raw) = decompose_swapp_note(note2_in)?;
 
-    // must be matchable
+    // 1. must be matchable
     if offer1_raw.faucet_id() != want2_raw.faucet_id()
         || want1_raw.faucet_id() != offer2_raw.faucet_id()
     {
         return Ok(None);
     }
 
-    // compute output amounts
-    let (amount_a_1_p2id1, new_amount_a_note1, new_amount_b_note1) =
-        compute_partial_swapp(offer1_raw.amount(), want1_raw.amount(), offer2_raw.amount());
-
-    let (amount_a_1_p2id2, new_amount_a_note2, new_amount_b_note2) =
-        compute_partial_swapp(offer2_raw.amount(), want2_raw.amount(), offer1_raw.amount());
-
-    // check that matcher won't lose assets matching
+    // 2. check that matcher won't lose assets matching
     {
         let a1: u128 = offer1_raw.amount().into();
         let b1: u128 = want1_raw.amount().into();
@@ -904,16 +918,29 @@ pub fn try_match_swapp_notes(
         }
     }
 
-    // ──────────────────────────────────────────────────────────────
-    // If one side is offering exactly what the other side wants
-    // (or vice-versa) then both orders are fully matched.
-    // ──────────────────────────────────────────────────────────────
-    let quantities_match =
-        offer1_raw.amount() == want2_raw.amount() && offer2_raw.amount() == want1_raw.amount();
+    let offer_1_gt_want_2 = offer1_raw.amount() > want2_raw.amount();
+    let offer_2_gt_want_1 = offer2_raw.amount() > want1_raw.amount();
 
-    if quantities_match && (offer1_raw == want2_raw || offer2_raw == want1_raw) {
-        println!("complete fill with arb");
-        // build the two P2ID notes (no leftover swap note)
+    // ------------------------------------------------------------------------
+    // Are both orders fully satisfiable?
+    // – case A: each offer is *greater* than what the other side wants
+    // – case B: each offer is *exactly equal* to what the other side wants
+    //           *and* the asset IDs line up
+    // ------------------------------------------------------------------------
+    let both_fully_filled = (offer_1_gt_want_2 && offer_2_gt_want_1)
+        || (offer1_raw.amount() == want2_raw.amount()
+            && offer2_raw.amount() == want1_raw.amount()
+            && (offer1_raw == want2_raw || offer2_raw == want1_raw));
+
+    if both_fully_filled {
+        // (optional) keep the debug line that was in the second branch only
+        if !(offer_1_gt_want_2 && offer_2_gt_want_1) {
+            println!("complete fill with arb");
+        }
+
+        // --------------------------------------------------------------------
+        // Build the two P2ID notes – identical to what each branch did before
+        // --------------------------------------------------------------------
         let note1_creator = creator_of(note1_in);
         let note2_creator = creator_of(note2_in);
 
@@ -943,7 +970,6 @@ pub fn try_match_swapp_notes(
         )
         .unwrap();
 
-        // note-args are simply the full “want” amounts
         let note1_args = [
             Felt::new(0),
             Felt::new(0),
@@ -968,9 +994,22 @@ pub fn try_match_swapp_notes(
         }));
     }
 
-    // println!("##############################################\n\n");
+    // compute output amounts
+    let (amount_a_1_p2id1, new_amount_a_note1, new_amount_b_note1) =
+        compute_partial_swapp(offer1_raw.amount(), want1_raw.amount(), offer2_raw.amount());
+
+    let (amount_a_1_p2id2, new_amount_a_note2, new_amount_b_note2) =
+        compute_partial_swapp(offer2_raw.amount(), want2_raw.amount(), offer1_raw.amount());
+
+    // ──one side must be fully filled ──────────────────────────
+    let note1_filled = new_amount_a_note1 == 0 && new_amount_b_note1 == 0;
+    let note2_filled = new_amount_a_note2 == 0 && new_amount_b_note2 == 0;
+
     let note1_swap_cnt = note1_in.inputs().values()[8].as_int();
     let note2_swap_cnt = note2_in.inputs().values()[8].as_int();
+
+    println!("##############################################\n\n");
+
     println!("SWAP COUNT: {:?}", note1_swap_cnt);
     println!("SWAP COUNT: {:?}", note2_swap_cnt);
 
@@ -981,18 +1020,13 @@ pub fn try_match_swapp_notes(
     println!("offer2_raw: {:?}", offer2_raw.amount());
     println!("want2_raw: {:?}", want2_raw.amount());
 
+    println!("##############################################\n\n");
     println!("amount_a_1_p2id1: {:?}", amount_a_1_p2id1);
     println!("new_amount_a_note1: {:?}", new_amount_a_note1);
     println!("new_amount_b_note1: {:?}", new_amount_b_note1);
     println!("amount_a_1_p2id2: {:?}", amount_a_1_p2id2);
     println!("new_amount_a_note2: {:?}", new_amount_a_note2);
     println!("new_amount_b_note2: {:?}", new_amount_b_note2);
-
-    // ──one side must be fully filled ──────────────────────────
-    // let note1_filled = new_amount_a_note1 == 0 && new_amount_b_note1 == 0;
-    // let note2_filled = new_amount_a_note2 == 0 && new_amount_b_note2 == 0;
-    let note1_filled = offer2_raw.amount() >= want1_raw.amount();
-    let note2_filled = offer1_raw.amount() >= want2_raw.amount();
 
     // both notes still have leftover amounts → not a valid match
     if !note1_filled && !note2_filled {
@@ -1017,6 +1051,7 @@ pub fn try_match_swapp_notes(
         amount_a_1_p2id2,
     ) = if !note2_filled && note1_filled {
         // swap note1_in and note2_in (and all their associated data)
+        println!("note 1 bigger");
         (
             note2_in,
             note1_in,
@@ -1028,6 +1063,8 @@ pub fn try_match_swapp_notes(
             amount_a_1_p2id1,
         )
     } else {
+        println!("note 2 bigger");
+
         (
             note1_in,
             note2_in,
@@ -1044,10 +1081,12 @@ pub fn try_match_swapp_notes(
     let (offer2_raw, want2_raw) = decompose_swapp_note(note2_in)?;
 
     println!("POST SWAP");
+    println!("\n");
     println!("offer1_raw: {:?}", offer1_raw.amount());
     println!("want1_raw: {:?}", want1_raw.amount());
     println!("offer2_raw: {:?}", offer2_raw.amount());
     println!("want2_raw: {:?}", want2_raw.amount());
+    println!("\n");
 
     let p2id_note1_output_requested_asset =
         FungibleAsset::new(want1_raw.faucet_id(), amount_a_1_p2id2).unwrap();

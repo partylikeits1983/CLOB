@@ -384,8 +384,8 @@ async fn execute_batch_blockchain_match_simplified(
 
     for (swap_data, _, _, _, _) in matches_batch {
         // Add input notes from this match (exactly like the test)
-        input_notes.push((swap_data.swap_note_1.id(), Some(swap_data.note1_args)));
-        input_notes.push((swap_data.swap_note_2.id(), Some(swap_data.note2_args)));
+        input_notes.push((swap_data.swap_note_1.clone(), Some(swap_data.note1_args)));
+        input_notes.push((swap_data.swap_note_2.clone(), Some(swap_data.note2_args)));
 
         // Add expected output notes from this match (exactly like the test)
         expected_outputs.push(swap_data.p2id_from_1_to_2.clone());
@@ -407,7 +407,7 @@ async fn execute_batch_blockchain_match_simplified(
     // Build the transaction request (exactly like the test)
     use miden_client::transaction::TransactionRequestBuilder;
     let consume_req = TransactionRequestBuilder::new()
-        .with_authenticated_input_notes(input_notes)
+        .with_unauthenticated_input_notes(input_notes)
         .with_expected_output_notes(expected_outputs.clone())
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;

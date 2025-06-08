@@ -3,7 +3,7 @@ use miden_clob::{
     common::{
         create_partial_swap_note, decompose_swapp_note, price_to_swap_note, try_match_swapp_notes,
     },
-    compute_partial_swapp,
+    compute_partial_swapp, create_order_simple_testing,
 };
 
 #[test]
@@ -278,7 +278,7 @@ async fn test_compute_partial_swapp_math() {
 #[tokio::test]
 #[ignore]
 async fn test_compute_partial_swapp_edge_case() {
-    let amount_b_in = 1120588;
+    let amount_b_in = 522;
     let (amount_a_1, new_amount_a, new_amount_b) = compute_partial_swapp(
         438,         // originally offered A
         1081860,     // originally requested B
@@ -291,9 +291,9 @@ async fn test_compute_partial_swapp_edge_case() {
     println!("new_amount_a (A leftover):   {}", new_amount_a);
     println!("new_amount_b (B leftover):   {}", new_amount_b);
 
-    /*     assert_eq!(amount_a_1, 1368162);
+    assert_eq!(amount_a_1, 1368162);
     assert_eq!(new_amount_a, 0);
-    assert_eq!(new_amount_b, 0); */
+    assert_eq!(new_amount_b, 0);
 }
 
 #[test]
@@ -417,6 +417,39 @@ fn test_price_to_swap_note_match() {
         &faucet_a,
         &faucet_b,
         Word::default(),
+    );
+
+    let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher_id).unwrap();
+
+    println!("swap data: {:?}", swap_data);
+}
+
+#[test]
+#[ignore]
+fn match_swap_notes_algo_test() {
+    let trader_1 = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
+    let trader_2 = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
+
+    let matcher_id = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
+    let faucet_a = AccountId::from_hex("0xe125e96a9af535200000a5dc5d4500").unwrap();
+    let faucet_b = AccountId::from_hex("0x34d1b6993361072000005737e7ae4b").unwrap();
+
+    // ────────────────────────────────────────────────────────────
+    // 2.  Trader-1:
+    // ────────────────────────────────────────────────────────────
+    let swap_note_1 = create_order_simple_testing(
+        trader_1,
+        FungibleAsset::new(faucet_a, 438).unwrap().into(),
+        FungibleAsset::new(faucet_b, 1081860).unwrap().into(),
+    );
+
+    // ────────────────────────────────────────────────────────────
+    // 3.  Trader-2:
+    // ────────────────────────────────────────────────────────────
+    let swap_note_2 = create_order_simple_testing(
+        trader_2,
+        FungibleAsset::new(faucet_b, 1120588).unwrap().into(), // offered (use exact amount from working match)
+        FungibleAsset::new(faucet_a, 434).unwrap().into(), // wanted (use exact amount from working match)
     );
 
     let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher_id).unwrap();
