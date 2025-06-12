@@ -8,7 +8,7 @@ use serde::Deserialize;
 use std::env;
 use std::fs;
 use std::time::{Duration, Instant};
-use tokio::time::{Duration as TokioDuration, sleep};
+use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 use miden_client::{
