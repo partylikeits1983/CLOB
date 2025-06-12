@@ -84,12 +84,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     display_buffer.push_str("📭 No open orders found in the database.\n");
                     display_buffer
                         .push_str("💡 Run the populate script first: cargo run --bin populate\n");
-                } else {
-                    display_buffer.push_str("\n💡 Tips:\n");
-                    display_buffer
-                        .push_str("   • Run matching engine: cargo run --bin matching_engine\n");
-                    display_buffer.push_str("   • Add more orders: cargo run --bin populate\n");
-                    display_buffer.push_str("   • Press Ctrl+C to exit this monitor\n");
                 }
             }
             Err(e) => {

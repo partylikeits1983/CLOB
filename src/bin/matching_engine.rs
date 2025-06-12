@@ -364,6 +364,7 @@ async fn execute_batch_blockchain_match_simplified(
     client.sync_state().await.unwrap();
 
     // Import the matcher account to ensure it exists in the client state
+    /*
     info!("Importing matcher account: {}", matcher_id.to_hex());
     if let Err(e) = client.import_account_by_id(matcher_id).await {
         warn!(
@@ -371,6 +372,7 @@ async fn execute_batch_blockchain_match_simplified(
             e
         );
     }
+    */
 
     // Sync state with better error handling
     if let Err(e) = client.sync_state().await {

@@ -55,7 +55,7 @@ pub async fn create_basic_account(
     let builder = AccountBuilder::new(init_seed)
         .anchor((&anchor_block).try_into().unwrap())
         .account_type(AccountType::RegularAccountUpdatableCode)
-        .storage_mode(AccountStorageMode::Public)
+        .storage_mode(AccountStorageMode::Private)
         .with_component(RpoFalcon512::new(key_pair.public_key().clone()))
         .with_component(BasicWallet);
     let (account, seed) = builder.build().unwrap();
@@ -1359,21 +1359,23 @@ pub fn generate_depth_chart_string(
     let mut ask_cumulative = Vec::new();
     let mut ask_traders = Vec::new();
 
-    let mut cumulative_bid_volume = 0.0;
+    let mut cumulative_bid_volume_usd = 0.0;
     for (price, volume, trader) in &bids {
         bid_prices.push(*price);
-        bid_volumes.push(*volume);
-        cumulative_bid_volume += volume;
-        bid_cumulative.push(cumulative_bid_volume);
+        let volume_usd = volume * price;
+        bid_volumes.push(volume_usd);
+        cumulative_bid_volume_usd += volume_usd;
+        bid_cumulative.push(cumulative_bid_volume_usd);
         bid_traders.push(trader);
     }
 
-    let mut cumulative_ask_volume = 0.0;
+    let mut cumulative_ask_volume_usd = 0.0;
     for (price, volume, trader) in &asks {
         ask_prices.push(*price);
-        ask_volumes.push(*volume);
-        cumulative_ask_volume += volume;
-        ask_cumulative.push(cumulative_ask_volume);
+        let volume_usd = volume * price;
+        ask_volumes.push(volume_usd);
+        cumulative_ask_volume_usd += volume_usd;
+        ask_cumulative.push(cumulative_ask_volume_usd);
         ask_traders.push(trader);
     }
 
@@ -1435,7 +1437,7 @@ pub fn generate_depth_chart_string(
             "╠═════════╦════════╦═════════╦══════════╬═════════╦════════╦═════════╦══════════════╣\n"
         );
         output.push_str(
-            "║ Price   ║ ETH    ║ Total   ║ Trader   ║ Price   ║ ETH    ║ Total   ║ Trader       ║\n"
+            "║ Price   ║ ETH    ║ USD Vol ║ Trader   ║ Price   ║ ETH    ║ USD Vol ║ Trader       ║\n"
         );
         output.push_str(
             "╠═════════╬════════╬═════════╬══════════╬═════════╬════════╬═════════╬══════════════╣\n"
@@ -1614,11 +1616,11 @@ pub fn generate_depth_chart_string(
         asks.len()
     ));
     output.push_str(&format!(
-        "║ Total ETH volume (bids)          ║ {:<19.4}   ║\n",
+        "║ Total bid volume (USD)           ║ ${:<18.4}   ║\n",
         bid_cumulative.last().unwrap_or(&0.0)
     ));
     output.push_str(&format!(
-        "║ Total ETH volume (asks)          ║ {:<19.4}   ║\n",
+        "║ Total ask volume (USD)           ║ ${:<18.4}   ║\n",
         ask_cumulative.last().unwrap_or(&0.0)
     ));
     output.push_str("╚══════════════════════════════════╩═══════════════════════╝\n");

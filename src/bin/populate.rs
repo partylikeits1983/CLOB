@@ -7,7 +7,8 @@ use reqwest;
 use serde::Deserialize;
 use std::env;
 use std::fs;
-use tokio::time::{Duration, sleep};
+use std::time::{Duration, Instant};
+use tokio::time::{Duration as TokioDuration, sleep};
 use tracing::{error, info, warn};
 
 use miden_client::{
@@ -45,12 +46,12 @@ struct MarketMakerConfig {
 impl Default for MarketMakerConfig {
     fn default() -> Self {
         Self {
-            spread_percentage: 0.5,
-            num_levels: 25, // Increased from 5 to 25 levels per side (50 total orders)
-            base_quantity: 1.0,
-            quantity_variance: 0.5,
-            price_variance: 0.1,
-            update_interval_secs: 30, // Set to 30 seconds as requested
+            spread_percentage: 0.0001,
+            num_levels: 2,
+            base_quantity: 0.01,
+            quantity_variance: 0.1,
+            price_variance: 0.003,
+            update_interval_secs: 1, // Set to 30 seconds as requested
         }
     }
 }
@@ -62,6 +63,9 @@ struct MarketMaker {
     server_url: String,
     http_client: reqwest::Client,
     is_setup_mode: bool,
+    // New fields for price caching
+    cached_eth_price: Option<f64>,
+    last_price_fetch: Option<Instant>,
 }
 
 impl MarketMaker {
@@ -167,6 +171,8 @@ impl MarketMaker {
                 server_url,
                 http_client,
                 is_setup_mode: true,
+                cached_eth_price: None,
+                last_price_fetch: None,
             })
         } else {
             // Load from .env file for normal operation
@@ -221,22 +227,46 @@ impl MarketMaker {
                 server_url,
                 http_client,
                 is_setup_mode: false,
+                cached_eth_price: None,
+                last_price_fetch: None,
             })
         }
     }
 
-    async fn fetch_eth_price(&self) -> Result<f64> {
+    async fn fetch_eth_price(&mut self) -> Result<f64> {
+        // Check if we have a cached price and it's less than 5 minutes old
+        if let (Some(cached_price), Some(last_fetch)) =
+            (self.cached_eth_price, self.last_price_fetch)
+        {
+            if last_fetch.elapsed() < Duration::from_secs(5 * 60) {
+                info!("Using cached ETH price: ${:.2}", cached_price);
+                return Ok(cached_price);
+            }
+        }
+
         let url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd";
 
         info!("Fetching ETH price from CoinGecko");
         let response = self.http_client.get(url).send().await?;
 
         if !response.status().is_success() {
+            // If we have a cached price, use it
+            if let Some(cached_price) = self.cached_eth_price {
+                warn!(
+                    "API fetch failed, using last known price: ${:.2}",
+                    cached_price
+                );
+                return Ok(cached_price);
+            }
             return Err(anyhow!("Failed to fetch price: HTTP {}", response.status()));
         }
 
         let price_data: CoinGeckoResponse = response.json().await?;
         let eth_price = price_data.ethereum.usd;
+
+        // Update cached price and fetch time
+        self.cached_eth_price = Some(eth_price);
+        self.last_price_fetch = Some(Instant::now());
 
         info!("Current ETH price: ${:.2}", eth_price);
         Ok(eth_price)
@@ -598,14 +628,7 @@ async fn main() -> Result<()> {
         args.len() > 1 && (args[1] == "--once" || (args.len() > 2 && args[2] == "--once"));
 
     // Enhanced configuration for more orders
-    let config = MarketMakerConfig {
-        spread_percentage: 0.1,  // 1% spread
-        num_levels: 20,          // 25 levels per side = 50 total orders
-        base_quantity: 0.5,      // 0.5 ETH base size
-        quantity_variance: 0.5,  // ±40% quantity variance
-        price_variance: 0.05,    // ±5% price variance
-        update_interval_secs: 1, // Update every 15 seconds (as requested)
-    };
+    let config = MarketMakerConfig::default();
 
     let server_url = "http://localhost:3000".to_string();
 
