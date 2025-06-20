@@ -632,19 +632,27 @@ impl MarketMaker {
             let target_account_id = match AccountId::from_hex(&p2id_record.target_id) {
                 Ok(id) => id,
                 Err(e) => {
-                    warn!("Invalid target_id {} in P2ID record {}: {}",
-                          p2id_record.target_id, p2id_record.note_id, e);
+                    warn!(
+                        "Invalid target_id {} in P2ID record {}: {}",
+                        p2id_record.target_id, p2id_record.note_id, e
+                    );
                     continue;
                 }
             };
 
             // Try to import the target account into the client (it might not exist locally)
-            info!("Importing target account {} for P2ID note {}",
-                  target_account_id.to_hex(), p2id_record.note_id);
-            
+            info!(
+                "Importing target account {} for P2ID note {}",
+                target_account_id.to_hex(),
+                p2id_record.note_id
+            );
+
             if let Err(e) = client.import_account_by_id(target_account_id).await {
-                warn!("Failed to import target account {} (may not exist or already imported): {}",
-                      target_account_id.to_hex(), e);
+                warn!(
+                    "Failed to import target account {} (may not exist or already imported): {}",
+                    target_account_id.to_hex(),
+                    e
+                );
                 // Continue anyway - the account might already be imported or might not be ours
                 continue;
             }
@@ -659,48 +667,66 @@ impl MarketMaker {
             let note = match note_serialization::deserialize_note(&p2id_record.note_data) {
                 Ok(note) => note,
                 Err(e) => {
-                    warn!("Failed to deserialize P2ID note {}: {}", p2id_record.note_id, e);
+                    warn!(
+                        "Failed to deserialize P2ID note {}: {}",
+                        p2id_record.note_id, e
+                    );
                     continue;
                 }
             };
 
-            info!("Claiming P2ID note {} using target account {}",
-                  p2id_record.note_id, target_account_id.to_hex());
-            
+            info!(
+                "Claiming P2ID note {} using target account {}",
+                p2id_record.note_id,
+                target_account_id.to_hex()
+            );
+
             // Create transaction to claim the note using the target account
-            let claim_request = match TransactionRequestBuilder::new()
-                .build_consume_notes(vec![note.id()]) {
-                Ok(req) => req,
-                Err(e) => {
-                    warn!("Failed to build consume request for P2ID note {}: {}",
-                          p2id_record.note_id, e);
-                    continue;
-                }
-            };
-            
-            match client.new_transaction(target_account_id, claim_request).await {
+            let claim_request =
+                match TransactionRequestBuilder::new().build_consume_notes(vec![note.id()]) {
+                    Ok(req) => req,
+                    Err(e) => {
+                        warn!(
+                            "Failed to build consume request for P2ID note {}: {}",
+                            p2id_record.note_id, e
+                        );
+                        continue;
+                    }
+                };
+
+            match client
+                .new_transaction(target_account_id, claim_request)
+                .await
+            {
                 Ok(tx) => {
                     match client.submit_transaction(tx).await {
                         Ok(_) => {
-                            info!("✅ Successfully claimed P2ID note {} using account {}",
-                                  p2id_record.note_id, target_account_id.to_hex());
-                            
+                            info!(
+                                "✅ Successfully claimed P2ID note {} using account {}",
+                                p2id_record.note_id,
+                                target_account_id.to_hex()
+                            );
+
                             // Remove the claimed note from database
                             if let Err(e) = database.remove_p2id_note(&p2id_record.note_id).await {
                                 warn!("Failed to remove claimed P2ID note from database: {}", e);
                             }
-                            
+
                             total_claimed += 1;
                         }
                         Err(e) => {
-                            warn!("Failed to submit P2ID claim transaction for {}: {}",
-                                  p2id_record.note_id, e);
+                            warn!(
+                                "Failed to submit P2ID claim transaction for {}: {}",
+                                p2id_record.note_id, e
+                            );
                         }
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to create P2ID claim transaction for {}: {}",
-                          p2id_record.note_id, e);
+                    warn!(
+                        "Failed to create P2ID claim transaction for {}: {}",
+                        p2id_record.note_id, e
+                    );
                 }
             }
         }

@@ -637,8 +637,6 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     Ok(())
 }
 
-
-
 #[tokio::test]
 async fn create_swap_notes_claim_p2id() -> Result<(), ClientError> {
     // ────────────────────────────────────────────────────────────
@@ -764,10 +762,17 @@ async fn create_swap_notes_claim_p2id() -> Result<(), ClientError> {
         matcher_acct.vault().get_balance(faucet_b.id())
     );
 
-    wait_for_note(&mut client, &trader_1, &swap_data.p2id_from_1_to_2).await.unwrap();
+    wait_for_note(&mut client, &trader_1, &swap_data.p2id_from_1_to_2)
+        .await
+        .unwrap();
 
-    let claim_p2id_account1 = TransactionRequestBuilder::new().build_consume_notes(vec![swap_data.p2id_from_1_to_2.id()]).unwrap();
-    let tx = client.new_transaction(trader_1.id(), claim_p2id_account1).await.unwrap();
+    let claim_p2id_account1 = TransactionRequestBuilder::new()
+        .build_consume_notes(vec![swap_data.p2id_from_1_to_2.id()])
+        .unwrap();
+    let tx = client
+        .new_transaction(trader_1.id(), claim_p2id_account1)
+        .await
+        .unwrap();
 
     client.submit_transaction(tx).await.unwrap();
 

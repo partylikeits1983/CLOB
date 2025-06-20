@@ -842,11 +842,15 @@ impl Database {
     }
 
     /// Get P2ID notes for a specific recipient account ID
-    pub async fn get_p2id_notes_for_recipient(&self, recipient_account_id: &str) -> Result<Vec<P2IdNoteRecord>> {
-        let rows = sqlx::query("SELECT * FROM p2id_notes WHERE recipient = ? ORDER BY created_at ASC")
-            .bind(recipient_account_id)
-            .fetch_all(&self.pool)
-            .await?;
+    pub async fn get_p2id_notes_for_recipient(
+        &self,
+        recipient_account_id: &str,
+    ) -> Result<Vec<P2IdNoteRecord>> {
+        let rows =
+            sqlx::query("SELECT * FROM p2id_notes WHERE recipient = ? ORDER BY created_at ASC")
+                .bind(recipient_account_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         let mut records = Vec::new();
         for row in rows {
