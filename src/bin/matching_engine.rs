@@ -1,12 +1,11 @@
 use anyhow::Result;
 use dotenv::dotenv;
-use miden_crypto::Felt;
 use std::{env, time::Duration};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 use chrono::Utc;
-use miden_client::{account::AccountId, asset::FungibleAsset, note::Note, rpc::Endpoint};
+use miden_client::{account::AccountId, note::Note, rpc::Endpoint};
 use miden_clob::{
     common::{instantiate_client, try_match_swapp_notes},
     database::{Database, P2IdNoteRecord, SwapNoteRecord, SwapNoteStatus},
@@ -550,33 +549,6 @@ async fn execute_batch_blockchain_match_simplified(
     }
 
     Ok(tx_id_hex)
-}
-
-fn print_swap_note_data(swap_note: Note) {
-    let offered_asset = swap_note
-        .assets()
-        .iter()
-        .next()
-        .expect("note has no assets")
-        .unwrap_fungible();
-
-    let note_inputs: &[Felt] = swap_note.inputs().values();
-    let requested: &[Felt] = note_inputs.get(..4).expect("note has fewer than 4 inputs");
-
-    let requested_id = AccountId::try_from([requested[3], requested[2]]).unwrap();
-    let requested_asset = FungibleAsset::new(requested_id, requested[0].as_int()).unwrap();
-
-    println!("SWAP NOTE: {:?}\n", swap_note.id());
-    println!(
-        "offered asset {:?} {:?}",
-        offered_asset.faucet_id().to_hex(),
-        offered_asset.amount()
-    );
-    println!(
-        "requested asset {:?} {:?}",
-        requested_asset.faucet_id().to_hex(),
-        requested_asset.amount()
-    );
 }
 
 // Simplified individual blockchain match execution following the test pattern exactly

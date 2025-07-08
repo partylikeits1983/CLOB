@@ -85,8 +85,4 @@ impl OrderBookManager {
         info!("Successfully added swap note: {}", note_id);
         Ok(record.id)
     }
-
-    pub fn get_open_order_count(&self) -> usize {
-        self.open_orders.len()
-    }
 }
