@@ -1,5 +1,5 @@
-use anyhow::{Result, anyhow};
-use base64::{Engine as _, engine::general_purpose};
+use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose, Engine as _};
 use miden_client::note::Note;
 use miden_tx::utils::{Deserializable, Serializable};
 

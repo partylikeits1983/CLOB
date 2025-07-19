@@ -1,4 +1,4 @@
-use miden_client::{Word, account::AccountId, asset::FungibleAsset};
+use miden_client::{account::AccountId, asset::FungibleAsset, Word};
 use miden_clob::{
     common::{
         create_partial_swap_note, decompose_swapp_note, price_to_swap_note, try_match_swapp_notes,
@@ -454,5 +454,10 @@ fn match_swap_notes_algo_test() {
 
     let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher_id).unwrap();
 
-    println!("swap data: {:?}", swap_data);
+    println!(
+        "swap {:?}",
+        swap_data.unwrap().p2id_from_1_to_2.script().root()
+    );
+
+    // println!("swap data: {:?}", swap_data);
 }

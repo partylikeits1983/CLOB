@@ -1,16 +1,15 @@
 use miden_assembly::{
-    Assembler, DefaultSourceManager, LibraryPath,
     ast::{Module, ModuleKind},
+    Assembler, DefaultSourceManager, LibraryPath,
 };
-use rand::{RngCore, rngs::StdRng};
+use rand::{rngs::StdRng, RngCore};
 use std::{env, fmt, fs, path::PathBuf, sync::Arc};
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
 use miden_client::{
-    Client, ClientError, Felt, Word,
     account::{
-        Account, AccountBuilder, AccountId, AccountStorageMode, AccountType, StorageSlot,
         component::{BasicFungibleFaucet, BasicWallet, RpoFalcon512},
+        Account, AccountBuilder, AccountId, AccountStorageMode, AccountType, StorageSlot,
     },
     asset::{Asset, FungibleAsset, TokenSymbol},
     auth::AuthSecretKey,
@@ -18,14 +17,15 @@ use miden_client::{
     crypto::{FeltRng, SecretKey},
     keystore::FilesystemKeyStore,
     note::{
-        Note, NoteAssets, NoteExecutionHint, NoteExecutionMode, NoteId, NoteInputs, NoteMetadata,
-        NoteRecipient, NoteRelevance, NoteScript, NoteTag, NoteType, build_swap_tag,
+        build_swap_tag, Note, NoteAssets, NoteExecutionHint, NoteId, NoteInputs, NoteMetadata,
+        NoteRecipient, NoteRelevance, NoteScript, NoteTag, NoteType,
     },
     rpc::{Endpoint, TonicRpcClient},
     store::InputNoteRecord,
     transaction::{OutputNote, TransactionKernel, TransactionRequestBuilder},
+    Client, ClientError, Felt, Word,
 };
-use miden_objects::{Hasher, NoteError, account::AccountComponent};
+use miden_objects::{account::AccountComponent, Hasher, NoteError};
 use serde::de::value::Error;
 
 pub fn create_library(
@@ -51,12 +51,10 @@ pub async fn create_basic_account(
     client.rng().fill_bytes(&mut init_seed);
 
     let key_pair = SecretKey::with_rng(client.rng());
-    let anchor_block = client.get_latest_epoch_block().await.unwrap();
     let builder = AccountBuilder::new(init_seed)
-        .anchor((&anchor_block).try_into().unwrap())
         .account_type(AccountType::RegularAccountUpdatableCode)
         .storage_mode(AccountStorageMode::Private)
-        .with_component(RpoFalcon512::new(key_pair.public_key().clone()))
+        .with_auth_component(RpoFalcon512::new(key_pair.public_key().clone()))
         .with_component(BasicWallet);
     let (account, seed) = builder.build().unwrap();
     client.add_account(&account, Some(seed), false).await?;
@@ -74,15 +72,13 @@ pub async fn create_basic_faucet(
     let mut init_seed = [0u8; 32];
     client.rng().fill_bytes(&mut init_seed);
     let key_pair = SecretKey::with_rng(client.rng());
-    let anchor_block = client.get_latest_epoch_block().await.unwrap();
     let symbol = TokenSymbol::new("MID").unwrap();
     let decimals = 8;
     let max_supply = Felt::new(1_000_000_000);
     let builder = AccountBuilder::new(init_seed)
-        .anchor((&anchor_block).try_into().unwrap())
         .account_type(AccountType::FungibleFaucet)
         .storage_mode(AccountStorageMode::Public)
-        .with_component(RpoFalcon512::new(key_pair.public_key()))
+        .with_auth_component(RpoFalcon512::new(key_pair.public_key()))
         .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap());
     let (account, seed) = builder.build().unwrap();
     client.add_account(&account, Some(seed), false).await?;
@@ -176,7 +172,7 @@ pub async fn setup_accounts_and_faucets(
     for (acct_idx, account) in accounts.iter().enumerate() {
         for note in &minted_notes[acct_idx] {
             let consume_req = TransactionRequestBuilder::new()
-                .with_authenticated_input_notes([(note.id(), None)])
+                .authenticated_input_notes([(note.id(), None)])
                 .build()
                 .unwrap();
 
@@ -258,14 +254,14 @@ pub fn create_partial_swap_note(
 
     let requested_asset_word: Word = requested_asset.into();
     let swapp_tag = build_swap_tag(note_type, &offered_asset, &requested_asset)?;
-    let p2id_tag = NoteTag::from_account_id(creator, NoteExecutionMode::Local)?;
+    let p2id_tag = NoteTag::from_account_id(creator);
 
     let inputs = NoteInputs::new(vec![
         requested_asset_word[0],
         requested_asset_word[1],
         requested_asset_word[2],
         requested_asset_word[3],
-        swapp_tag.inner().into(),
+        swapp_tag.into(),
         p2id_tag.into(),
         Felt::new(0),
         Felt::new(0),
@@ -318,14 +314,14 @@ pub fn create_partial_swap_note_cancellable(
 
     let requested_asset_word: Word = requested_asset.into();
     let swapp_tag = build_swap_tag(note_type, &offered_asset, &requested_asset)?;
-    let p2id_tag = NoteTag::from_account_id(creator, NoteExecutionMode::Local)?;
+    let p2id_tag = NoteTag::from_account_id(creator);
 
     let inputs = NoteInputs::new(vec![
         requested_asset_word[0],
         requested_asset_word[1],
         requested_asset_word[2],
         requested_asset_word[3],
-        swapp_tag.inner().into(),
+        swapp_tag.into(),
         p2id_tag.into(),
         Felt::new(0),
         Felt::new(0),
@@ -392,7 +388,7 @@ pub async fn create_order(
     .unwrap();
 
     let note_req = TransactionRequestBuilder::new()
-        .with_own_output_notes(vec![OutputNote::Full(swapp_note.clone())])
+        .own_output_notes(vec![OutputNote::Full(swapp_note.clone())])
         .build()
         .unwrap();
     let tx_result = client.new_transaction(trader, note_req).await.unwrap();
@@ -428,7 +424,7 @@ pub async fn create_order_simple(
     .unwrap();
 
     let note_req = TransactionRequestBuilder::new()
-        .with_own_output_notes(vec![OutputNote::Full(swapp_note.clone())])
+        .own_output_notes(vec![OutputNote::Full(swapp_note.clone())])
         .build()
         .unwrap();
     let tx_result = client.new_transaction(trader, note_req).await.unwrap();
@@ -486,7 +482,7 @@ pub fn create_p2id_note(
     let note_script = NoteScript::compile(note_code, assembler).unwrap();
 
     let inputs = NoteInputs::new(vec![target.suffix(), target.prefix().into()])?;
-    let tag = NoteTag::from_account_id(target, NoteExecutionMode::Local)?;
+    let tag = NoteTag::from_account_id(target);
 
     let metadata = NoteMetadata::new(sender, note_type, tag, NoteExecutionHint::always(), aux)?;
     let vault = NoteAssets::new(assets)?;
@@ -572,7 +568,7 @@ pub fn create_option_contract_note<R: FeltRng>(
 
     let payback_recipient_word: Word = p2id_note.recipient().digest().into();
     let requested_asset_word: Word = requested_asset.into();
-    let payback_tag = NoteTag::from_account_id(underwriter, NoteExecutionMode::Local)?;
+    let payback_tag = NoteTag::from_account_id(underwriter);
 
     let inputs = NoteInputs::new(vec![
         payback_recipient_word[0],
@@ -583,7 +579,7 @@ pub fn create_option_contract_note<R: FeltRng>(
         requested_asset_word[1],
         requested_asset_word[2],
         requested_asset_word[3],
-        payback_tag.inner().into(),
+        payback_tag.into(),
         NoteExecutionHint::always().into(),
         underwriter.prefix().into(),
         underwriter.suffix().into(),
@@ -665,8 +661,8 @@ pub async fn instantiate_client(endpoint: Endpoint) -> Result<Client, ClientErro
     let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
 
     let client = ClientBuilder::new()
-        .with_rpc(rpc_api.clone())
-        .with_filesystem_keystore("./keystore")
+        .rpc(rpc_api.clone())
+        .filesystem_keystore("./keystore")
         .in_debug_mode(true)
         .build()
         .await?;
@@ -699,18 +695,16 @@ pub async fn create_public_immutable_contract(
     let timeout_ms = 10_000;
     let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
     let mut client = ClientBuilder::new()
-        .with_rpc(rpc_api.clone())
-        .with_filesystem_keystore("./keystore")
+        .rpc(rpc_api.clone())
+        .filesystem_keystore("./keystore")
         .in_debug_mode(true)
         .build()
         .await?;
-    let anchor_block = client.get_latest_epoch_block().await.unwrap();
 
     let mut init_seed = [0_u8; 32];
     client.rng().fill_bytes(&mut init_seed);
 
     let (counter_contract, counter_seed) = AccountBuilder::new(init_seed)
-        .anchor((&anchor_block).try_into().unwrap())
         .account_type(AccountType::RegularAccountImmutableCode)
         .storage_mode(AccountStorageMode::Public)
         .with_component(counter_component.clone())

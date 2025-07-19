@@ -1,5 +1,6 @@
 use anyhow::Result;
 use dotenv::dotenv;
+use miden_objects::note::NoteDetails;
 use std::{env, time::Duration};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
@@ -389,12 +390,21 @@ async fn execute_batch_blockchain_match_simplified(
         input_notes.push((swap_data.swap_note_2.clone(), Some(swap_data.note2_args)));
 
         // Add expected output notes from this match (exactly like the test)
-        expected_outputs.push(swap_data.p2id_from_1_to_2.clone());
-        expected_outputs.push(swap_data.p2id_from_2_to_1.clone());
+        expected_outputs.push((
+            NoteDetails::from(swap_data.p2id_from_1_to_2.clone()),
+            swap_data.p2id_from_1_to_2.metadata().tag(),
+        ));
+        expected_outputs.push((
+            NoteDetails::from(swap_data.p2id_from_2_to_1.clone()),
+            swap_data.p2id_from_2_to_1.metadata().tag(),
+        ));
 
         // Add leftover notes if any (exactly like the test)
         if let Some(ref leftover_note) = swap_data.leftover_swapp_note {
-            expected_outputs.push(leftover_note.clone());
+            expected_outputs.push((
+                NoteDetails::from(leftover_note.clone()),
+                leftover_note.metadata().tag(),
+            ));
         }
     }
 
@@ -408,8 +418,8 @@ async fn execute_batch_blockchain_match_simplified(
     // Build the transaction request (exactly like the test)
     use miden_client::transaction::TransactionRequestBuilder;
     let consume_req = TransactionRequestBuilder::new()
-        .with_unauthenticated_input_notes(input_notes)
-        .with_expected_output_notes(expected_outputs.clone())
+        .unauthenticated_input_notes(input_notes)
+        .expected_future_notes(expected_outputs.clone())
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
 
@@ -590,21 +600,27 @@ async fn execute_blockchain_match_simplified(
 
     // Construct expected output notes exactly like the test
     let mut expected_outputs = vec![
-        swap_data.p2id_from_1_to_2.clone(),
-        swap_data.p2id_from_2_to_1.clone(),
+        (
+            NoteDetails::from(swap_data.p2id_from_1_to_2.clone()),
+            swap_data.p2id_from_1_to_2.metadata().tag(),
+        ),
+        (
+            NoteDetails::from(swap_data.p2id_from_2_to_1.clone()),
+            swap_data.p2id_from_2_to_1.metadata().tag(),
+        ),
     ];
     if let Some(ref note) = swap_data.leftover_swapp_note {
-        expected_outputs.push(note.clone());
+        expected_outputs.push((NoteDetails::from(note.clone()), note.metadata().tag()));
     }
 
     // Build the transaction request exactly like the test
     use miden_client::transaction::TransactionRequestBuilder;
     let consume_req = TransactionRequestBuilder::new()
-        .with_authenticated_input_notes([
-            (swap_data.swap_note_1.id(), Some(swap_data.note1_args)),
-            (swap_data.swap_note_2.id(), Some(swap_data.note2_args)),
+        .unauthenticated_input_notes([
+            (swap_data.swap_note_1.clone(), Some(swap_data.note1_args)),
+            (swap_data.swap_note_2.clone(), Some(swap_data.note2_args)),
         ])
-        .with_expected_output_notes(expected_outputs.clone())
+        .expected_future_notes(expected_outputs.clone())
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build transaction request: {}", e))?;
 

@@ -12,7 +12,7 @@ use tracing_subscriber;
 
 use database::Database;
 use orderbook::OrderBookManager;
-use server::{AppState, create_router};
+use server::{create_router, AppState};
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -1,9 +1,9 @@
 use miden_client::{
-    ClientError,
     keystore::FilesystemKeyStore,
     note::Note,
     rpc::Endpoint,
     transaction::{OutputNote, TransactionRequestBuilder},
+    ClientError,
 };
 
 use miden_clob::common::{

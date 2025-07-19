@@ -1,8 +1,8 @@
 use miden_clob::note_serialization;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use dotenv::dotenv;
-use rand::{Rng, rng};
+use rand::{rng, Rng};
 use reqwest;
 use serde::Deserialize;
 use std::env;
@@ -11,17 +11,18 @@ use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
+use miden_client::crypto::FeltRng;
 use miden_client::{
-    Client,
     account::{Account, AccountId},
     keystore::FilesystemKeyStore,
     rpc::Endpoint,
     transaction::{OutputNote, TransactionRequestBuilder},
+    Client,
 };
 use miden_clob::common::{
     delete_keystore_and_store, instantiate_client, price_to_swap_note, setup_accounts_and_faucets,
 };
-use miden_crypto::rand::FeltRng;
+// use rand::{RngCore, rngs::StdRng};
 
 #[derive(Debug, Deserialize)]
 struct CoinGeckoResponse {
@@ -393,7 +394,7 @@ impl MarketMaker {
                 client.sync_state().await.unwrap();
 
                 let req = TransactionRequestBuilder::new()
-                    .with_own_output_notes(vec![OutputNote::Full(swap_note.clone())])
+                    .own_output_notes(vec![OutputNote::Full(swap_note.clone())])
                     .build()?;
                 let tx = client.new_transaction(creator_account, req).await?;
                 client.submit_transaction(tx).await?;
@@ -472,7 +473,7 @@ impl MarketMaker {
                 client.sync_state().await.unwrap();
 
                 let req = TransactionRequestBuilder::new()
-                    .with_own_output_notes(vec![OutputNote::Full(swap_note.clone())])
+                    .own_output_notes(vec![OutputNote::Full(swap_note.clone())])
                     .build()?;
                 let tx = client.new_transaction(creator_account, req).await?;
                 client.submit_transaction(tx).await?;

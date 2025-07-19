@@ -1,13 +1,13 @@
 use std::time::{Duration, Instant};
 
 use miden_client::{
-    ClientError, Felt,
     asset::FungibleAsset,
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
     note::NoteType,
     rpc::{Endpoint, TonicRpcClient},
     transaction::{OutputNote, TransactionRequestBuilder},
+    ClientError, Felt,
 };
 use tokio::time::sleep;
 

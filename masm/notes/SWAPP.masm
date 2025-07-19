@@ -450,7 +450,9 @@ proc.execute_SWAPp
     # => [tag, aux, public_note, execution_hint_always, P2ID_RECIPIENT]
     # => [tag, aux, note_type, execution_hint, RECIPIENT]
 
-    call.wallet::create_note
+    push.111 debug.stack drop
+
+    call.tx::create_note
     # => [note_idx, pad(15) ...]
 
     mem_load.AMT_TOKENS_B_IN
@@ -533,8 +535,10 @@ proc.execute_SWAPp
         # => [payback_tag, aux, note_type, SWAPp_RECIPIENT]
         # => [tag, aux, note_type, execution_hint, RECIPIENT]
 
+        push.222 debug.stack drop
+        
         # SWAPp' creation
-        call.wallet::create_note
+        call.tx::create_note
         # => [note_idx, pad(15) ...]
 
         padw
@@ -566,7 +570,7 @@ begin
     mem_store.AMT_TOKENS_B_IN drop drop drop
     # => []
 
-    push.16931441755463843374.8308373913316597651.13395076160329158355.13190778139566330073
+    push.14355791738953101471.16880376862595469307.4399717636953729920.18023939233288492685
     mem_storew.P2ID_SCRIPT_ROOT_WORD dropw
     # => []
 
