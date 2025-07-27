@@ -355,7 +355,6 @@ async fn get_frontend_depth_chart(
         Ok(open_orders) => {
             info!("Found {} open orders in database", open_orders.len());
 
-            // Use database records but handle bids and asks differently
             let mut bids = Vec::new();
             let mut asks = Vec::new();
 
@@ -366,7 +365,6 @@ async fn get_frontend_depth_chart(
                 );
 
                 if order.is_bid {
-                    // For bids: price needs to be inverted and amount converted from base units
                     let price = if order.price > 0.0 {
                         1.0 / order.price
                     } else {
@@ -377,9 +375,8 @@ async fn get_frontend_depth_chart(
                           order.price, price, order.offered_amount, amount);
                     bids.push((price, amount));
                 } else {
-                    // For asks: price is correct, amount needs to be converted from 1e8 to human readable
                     let price = order.price;
-                    let amount = order.offered_amount as f64 / 100.0; // Convert from base units to human readable
+                    let amount = order.offered_amount as f64 / 100.0;
                     info!(
                         "ASK - price: {}, raw_amount: {}, converted_amount: {}",
                         price, order.offered_amount, amount
