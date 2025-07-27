@@ -177,6 +177,10 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
                 swapp_note_1.metadata().tag(),
             ),
         ])
+        .expected_output_recipients(vec![
+            swapp_note_1.recipient().clone(),
+            p2id_note.recipient().clone(),
+        ])
         .build()
         .unwrap();
 
@@ -363,11 +367,11 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
             (swap_note_1.id(), Some(swap_note_1_note_args)), // note that isn't filled compltely
             (swap_note_2.id(), Some(swap_note_2_note_args)), // note that is filled completely
         ])
-        // these are the outputted notes
         .expected_future_notes(vec![
             (NoteDetails::from(p2id_1.clone()), p2id_1.metadata().tag()),
             (NoteDetails::from(p2id_2.clone()), p2id_2.metadata().tag()),
         ])
+        .expected_output_recipients(vec![p2id_1.recipient().clone(), p2id_2.recipient().clone()])
         .build()
         .unwrap();
 
@@ -496,12 +500,21 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
         expected_outputs.push((NoteDetails::from(note.clone()), note.metadata().tag()))
     }
 
+    let mut expected_output_recipients = vec![
+        swap_data.p2id_from_1_to_2.recipient().clone(),
+        swap_data.p2id_from_2_to_1.recipient().clone(),
+    ];
+    if let Some(ref note) = swap_data.leftover_swapp_note {
+        expected_output_recipients.push(note.recipient().clone());
+    }
+
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args)), // maker’s SWAPP note
-            (swap_note_2.id(), Some(swap_data.note2_args)), // taker’s SWAPP note
+            (swap_note_1.id(), Some(swap_data.note1_args)), // maker's SWAPP note
+            (swap_note_2.id(), Some(swap_data.note2_args)), // taker's SWAPP note
         ])
         .expected_future_notes(expected_outputs)
+        .expected_output_recipients(expected_output_recipients)
         .build()
         .unwrap();
 
@@ -630,12 +643,21 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
         expected_outputs.push((NoteDetails::from(note.clone()), note.metadata().tag()));
     }
 
+    let mut expected_output_recipients = vec![
+        swap_data.p2id_from_1_to_2.recipient().clone(),
+        swap_data.p2id_from_2_to_1.recipient().clone(),
+    ];
+    if let Some(ref note) = swap_data.leftover_swapp_note {
+        expected_output_recipients.push(note.recipient().clone());
+    }
+
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_data.swap_note_1.id(), Some(swap_data.note1_args)), // maker’s SWAPP note
-            (swap_data.swap_note_2.id(), Some(swap_data.note2_args)), // taker’s SWAPP note
+            (swap_data.swap_note_1.id(), Some(swap_data.note1_args)), // maker's SWAPP note
+            (swap_data.swap_note_2.id(), Some(swap_data.note2_args)), // taker's SWAPP note
         ])
         .expected_future_notes(expected_outputs)
+        .expected_output_recipients(expected_output_recipients)
         .build()
         .unwrap();
 

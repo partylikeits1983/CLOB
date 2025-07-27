@@ -715,31 +715,31 @@ impl Database {
         fill_type: &str,
         transaction_id: Option<String>,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        // First, get the swap note record and release the connection lock immediately
+        let swap_note = {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare("SELECT * FROM swap_notes WHERE note_id = ?1")?;
+            let result = stmt.query_row(params![note_id], |row| {
+                let status_str: String = row.get("status")?;
+                let created_at_str: String = row.get("created_at")?;
 
-        // First, get the swap note record
-        let mut stmt = conn.prepare("SELECT * FROM swap_notes WHERE note_id = ?1")?;
-        let swap_note = stmt.query_row(params![note_id], |row| {
-            let status_str: String = row.get("status")?;
-            let created_at_str: String = row.get("created_at")?;
-
-            Ok((
-                row.get::<_, String>("id")?,
-                row.get::<_, String>("note_id")?,
-                row.get::<_, String>("creator_id")?,
-                row.get::<_, String>("offered_asset_id")?,
-                row.get::<_, i64>("offered_amount")?,
-                row.get::<_, String>("requested_asset_id")?,
-                row.get::<_, i64>("requested_amount")?,
-                row.get::<_, f64>("price")?,
-                row.get::<_, bool>("is_bid")?,
-                row.get::<_, String>("note_data")?,
-                status_str,
-                created_at_str,
-            ))
-        })?;
-
-        drop(stmt);
+                Ok((
+                    row.get::<_, String>("id")?,
+                    row.get::<_, String>("note_id")?,
+                    row.get::<_, String>("creator_id")?,
+                    row.get::<_, String>("offered_asset_id")?,
+                    row.get::<_, i64>("offered_amount")?,
+                    row.get::<_, String>("requested_asset_id")?,
+                    row.get::<_, i64>("requested_amount")?,
+                    row.get::<_, f64>("price")?,
+                    row.get::<_, bool>("is_bid")?,
+                    row.get::<_, String>("note_data")?,
+                    status_str,
+                    created_at_str,
+                ))
+            })?;
+            result
+        }; // Connection lock is released here
 
         // Parse the status from the database
         let original_status: SwapNoteStatus = swap_note.10.parse()?;

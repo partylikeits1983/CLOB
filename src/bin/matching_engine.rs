@@ -383,6 +383,7 @@ async fn execute_batch_blockchain_match_simplified(
     // Following the multi_order_fill_test pattern exactly
     let mut input_notes = Vec::new();
     let mut expected_outputs = Vec::new();
+    let mut expected_output_recipients = Vec::new();
 
     for (swap_data, _, _, _, _) in matches_batch {
         // Add input notes from this match (exactly like the test)
@@ -399,12 +400,16 @@ async fn execute_batch_blockchain_match_simplified(
             swap_data.p2id_from_2_to_1.metadata().tag(),
         ));
 
+        expected_output_recipients.push(swap_data.p2id_from_1_to_2.recipient().clone());
+        expected_output_recipients.push(swap_data.p2id_from_2_to_1.recipient().clone());
+
         // Add leftover notes if any (exactly like the test)
         if let Some(ref leftover_note) = swap_data.leftover_swapp_note {
             expected_outputs.push((
                 NoteDetails::from(leftover_note.clone()),
                 leftover_note.metadata().tag(),
             ));
+            expected_output_recipients.push(leftover_note.recipient().clone());
         }
     }
 
@@ -420,6 +425,7 @@ async fn execute_batch_blockchain_match_simplified(
     let consume_req = TransactionRequestBuilder::new()
         .unauthenticated_input_notes(input_notes)
         .expected_future_notes(expected_outputs.clone())
+        .expected_output_recipients(expected_output_recipients)
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
 
@@ -613,6 +619,14 @@ async fn execute_blockchain_match_simplified(
         expected_outputs.push((NoteDetails::from(note.clone()), note.metadata().tag()));
     }
 
+    let mut expected_output_recipients = vec![
+        swap_data.p2id_from_1_to_2.recipient().clone(),
+        swap_data.p2id_from_2_to_1.recipient().clone(),
+    ];
+    if let Some(ref note) = swap_data.leftover_swapp_note {
+        expected_output_recipients.push(note.recipient().clone());
+    }
+
     // Build the transaction request exactly like the test
     use miden_client::transaction::TransactionRequestBuilder;
     let consume_req = TransactionRequestBuilder::new()
@@ -621,6 +635,7 @@ async fn execute_blockchain_match_simplified(
             (swap_data.swap_note_2.clone(), Some(swap_data.note2_args)),
         ])
         .expected_future_notes(expected_outputs.clone())
+        .expected_output_recipients(expected_output_recipients)
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build transaction request: {}", e))?;
 
