@@ -4,6 +4,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use miden_client::account::AccountId;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -11,6 +12,7 @@ use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 
 use crate::{
+    common::{calculate_depth_chart_data, decompose_swapp_note},
     database::{Database, SwapNoteRecord},
     note_serialization::deserialize_note,
     orderbook::OrderBookManager,
@@ -104,6 +106,28 @@ pub struct UserOrdersQuery {
     pub user_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DepthChartQuery {
+    pub base: Option<String>,
+    pub quote: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FrontendDepthChartResponse {
+    pub bids: Vec<FrontendOrderBookEntry>,
+    pub asks: Vec<FrontendOrderBookEntry>,
+    pub spread: f64,
+    pub spread_percentage: f64,
+    pub last_price: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FrontendOrderBookEntry {
+    pub price: f64,
+    pub amount: f64,
+    pub total: f64,
+}
+
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
@@ -111,6 +135,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/orderbook", get(get_orderbook))
         .route("/orders/user", get(get_user_orders))
         .route("/depth/:base/:quote", get(get_depth_chart))
+        .route("/api/depth-chart", get(get_frontend_depth_chart))
         .route("/stats", get(get_stats))
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -311,6 +336,130 @@ async fn get_depth_chart(
         }
         Err(e) => {
             error!("Failed to get depth chart: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get depth chart: {}", e),
+            ))
+        }
+    }
+}
+
+async fn get_frontend_depth_chart(
+    State(state): State<AppState>,
+    Query(params): Query<DepthChartQuery>,
+) -> Result<Json<FrontendDepthChartResponse>, (StatusCode, String)> {
+    let _base_asset = params.base.unwrap_or_else(|| "ETH".to_string());
+    let _quote_asset = params.quote.unwrap_or_else(|| "USDC".to_string());
+
+    match state.db.get_open_swap_notes().await {
+        Ok(open_orders) => {
+            info!("Found {} open orders in database", open_orders.len());
+
+            // Use database records but handle bids and asks differently
+            let mut bids = Vec::new();
+            let mut asks = Vec::new();
+
+            for order in &open_orders {
+                info!(
+                    "Processing order: {} (is_bid: {}, price: {}, raw_amount: {})",
+                    order.note_id, order.is_bid, order.price, order.offered_amount
+                );
+
+                if order.is_bid {
+                    // For bids: price needs to be inverted and amount converted from base units
+                    let price = if order.price > 0.0 {
+                        1.0 / order.price
+                    } else {
+                        0.0
+                    };
+                    let amount = order.offered_amount as f64 * price / 1e9;
+                    info!("BID - original price: {}, inverted price: {}, raw_amount: {}, converted_amount: {}",
+                          order.price, price, order.offered_amount, amount);
+                    bids.push((price, amount));
+                } else {
+                    // For asks: price is correct, amount needs to be converted from 1e8 to human readable
+                    let price = order.price;
+                    let amount = order.offered_amount as f64 / 100.0; // Convert from base units to human readable
+                    info!(
+                        "ASK - price: {}, raw_amount: {}, converted_amount: {}",
+                        price, order.offered_amount, amount
+                    );
+                    asks.push((price, amount));
+                }
+            }
+
+            info!("Processed orders: {} bids, {} asks", bids.len(), asks.len());
+
+            // Sort bids by price (descending - highest first)
+            bids.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+
+            // Sort asks by price (ascending - lowest first)
+            asks.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+            // Calculate cumulative totals for bids
+            let mut processed_bids = Vec::new();
+            let mut cumulative_bid_amount = 0.0;
+
+            for (price, amount) in bids {
+                cumulative_bid_amount += amount;
+                processed_bids.push(FrontendOrderBookEntry {
+                    price,
+                    amount,
+                    total: cumulative_bid_amount,
+                });
+            }
+
+            // Calculate cumulative totals for asks
+            let mut processed_asks = Vec::new();
+            let mut cumulative_ask_amount = 0.0;
+
+            for (price, amount) in asks {
+                cumulative_ask_amount += amount;
+                processed_asks.push(FrontendOrderBookEntry {
+                    price,
+                    amount,
+                    total: cumulative_ask_amount,
+                });
+            }
+
+            // Calculate market metrics
+            let best_bid = processed_bids.first().map(|b| b.price);
+            let best_ask = processed_asks.first().map(|a| a.price);
+
+            let (spread, spread_percentage, last_price) = match (best_bid, best_ask) {
+                (Some(bid), Some(ask)) => {
+                    let spread = ask - bid;
+                    let spread_pct = if bid > 0.0 {
+                        (spread / bid) * 100.0
+                    } else {
+                        0.0
+                    };
+                    let mid = (bid + ask) / 2.0;
+                    (spread, spread_pct, mid)
+                }
+                (Some(bid), None) => (0.0, 0.0, bid),
+                (None, Some(ask)) => (0.0, 0.0, ask),
+                (None, None) => (0.0, 0.0, 0.0),
+            };
+
+            info!(
+                "Returning depth chart: {} bids, {} asks, spread: {:.2}, last_price: {:.2}",
+                processed_bids.len(),
+                processed_asks.len(),
+                spread,
+                last_price
+            );
+
+            Ok(Json(FrontendDepthChartResponse {
+                bids: processed_bids,
+                asks: processed_asks,
+                spread,
+                spread_percentage,
+                last_price,
+            }))
+        }
+        Err(e) => {
+            error!("Failed to get open swap notes: {}", e);
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to get depth chart: {}", e),

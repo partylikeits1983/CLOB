@@ -1621,3 +1621,51 @@ pub fn generate_depth_chart_string(
 
     output
 }
+
+/// Calculates depth chart data from swap notes, returning structured data for frontend use
+pub fn calculate_depth_chart_data(
+    swap_notes: &[Note],
+    faucet_usdc_id: &AccountId,
+    _faucet_eth_id: &AccountId,
+) -> (Vec<(f64, f64)>, Vec<(f64, f64)>) {
+    // Separate bids and asks
+    let mut bids = Vec::new();
+    let mut asks = Vec::new();
+
+    for note in swap_notes {
+        if let Ok((offered, requested)) = decompose_swapp_note(note) {
+            // Check if this is a bid (buying ETH with USDC) or ask (selling ETH for USDC)
+            if offered.faucet_id() == *faucet_usdc_id {
+                // This is a bid (buy order)
+                // For bids: price = USDC amount / ETH amount
+                let usdc_amount = offered.amount() as f64;
+                let eth_amount = requested.amount() as f64;
+
+                // Ensure we don't divide by zero
+                if eth_amount > 0.0 {
+                    let price = usdc_amount / eth_amount;
+                    bids.push((price, eth_amount));
+                }
+            } else {
+                // This is an ask (sell order)
+                // For asks: price = USDC amount / ETH amount
+                let usdc_amount = requested.amount() as f64;
+                let eth_amount = offered.amount() as f64;
+
+                // Ensure we don't divide by zero
+                if eth_amount > 0.0 {
+                    let price = usdc_amount / eth_amount;
+                    asks.push((price, eth_amount));
+                }
+            }
+        }
+    }
+
+    // Sort bids by price (descending)
+    bids.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+
+    // Sort asks by price (ascending)
+    asks.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+    (bids, asks)
+}

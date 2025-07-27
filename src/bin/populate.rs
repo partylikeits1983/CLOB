@@ -631,7 +631,7 @@ async fn main() -> Result<()> {
     // Enhanced configuration for more orders
     let config = MarketMakerConfig::default();
 
-    let server_url = "http://localhost:3000".to_string();
+    let server_url = "http://localhost:8080".to_string();
 
     if is_setup_mode {
         println!("🔧 Running in SETUP mode - creating faucets and accounts");

@@ -57,8 +57,8 @@ async fn main() -> Result<()> {
     let app = create_router(state);
 
     // Bind to address
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    info!("Server listening on http://0.0.0.0:3000");
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
+    info!("Server listening on http://0.0.0.0:8080");
 
     // Print available endpoints
     println!("\n🚀 Miden CLOB Server is running!");
@@ -70,8 +70,8 @@ async fn main() -> Result<()> {
     println!("  GET  /depth/:base/:quote        - Get depth chart");
     println!("  POST /match                     - Trigger matching");
     println!("  GET  /stats                     - Get server stats");
-    println!("🌐 Server address: http://localhost:3000");
-    println!("📊 Example: http://localhost:3000/health\n");
+    println!("🌐 Server address: http://localhost:8080");
+    println!("📊 Example: http://localhost:8080/health\n");
 
     // Start server
     axum::serve(listener, app).await?;
