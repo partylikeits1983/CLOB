@@ -25,6 +25,7 @@ use miden_client::{
     transaction::{OutputNote, TransactionKernel, TransactionRequestBuilder},
     Client, ClientError, Felt, Word,
 };
+use miden_lib::account::auth::NoAuth;
 use miden_objects::{account::AccountComponent, Hasher, NoteError};
 use serde::de::value::Error;
 
@@ -78,7 +79,7 @@ pub async fn create_basic_faucet(
     let builder = AccountBuilder::new(init_seed)
         .account_type(AccountType::FungibleFaucet)
         .storage_mode(AccountStorageMode::Public)
-        .with_auth_component(RpoFalcon512::new(key_pair.public_key()))
+        .with_auth_component(NoAuth::new())
         .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap());
     let (account, seed) = builder.build().unwrap();
     client.add_account(&account, Some(seed), false).await?;

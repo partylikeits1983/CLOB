@@ -23,34 +23,28 @@ Since it isn't very efficient if every user needs to generate a transaction to f
 
 To further improve order settlement speed, we can batch match many SWAPP notes at a time.
 
-## Running the demo:
-```
-./run_demo.sh
+## Running the CLOB on testnet:
+
+1. Start the server order database server:
+```bash
+cargo run --bin server
 ```
 
-## Running the Depth Chart CLI tool:
+2. In a separate terminal window, setup accounts and faucets, then populate orders:
+```bash
+cargo run --release --bin populate -- --setup
+cargo run --release --bin populate
 ```
+
+3. In a separate terminal window (after step 2 begins populating orders), start the matching engine:
+```bash
+cargo run --release --bin matching_engine
+```
+
+4. In a separate terminal window (after step 2 begins populating orders), view the CLOB depth chart:
+```bash
 cargo run --bin depth_chart
 ```
-
-## Running tests:
-
-Running all tests:
-```
-cargo test --release -- --test-threads=1
-```
-
-Running tests that don't use the client: 
-```
-cargo test -- --ignored
-```
-
-Running specific test
-```
-cargo test --release  swap_note_edge_case_test -- --exact --nocapture
-```
-
-
 
 #### Note:
 This is a WIP / Expiremental project

@@ -4,7 +4,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use miden_client::account::AccountId;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -12,7 +11,6 @@ use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 
 use crate::{
-    common::{calculate_depth_chart_data, decompose_swapp_note},
     database::{Database, SwapNoteRecord},
     note_serialization::deserialize_note,
     orderbook::OrderBookManager,
