@@ -1,21 +1,23 @@
-/* use std::{fs, path::Path};
+use std::{fs, path::Path};
 
 use miden_client::{
-    account::Account,
+    account::{Account, AccountId},
     asset::{Asset, AssetVault, FungibleAsset},
     note::{
         Note, NoteAssets, NoteExecutionHint, NoteExecutionMode, NoteInputs, NoteMetadata,
         NoteRecipient, NoteScript, NoteTag, NoteType,
     },
-    testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1, transaction::TransactionRequestBuilder,
+    testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1,
+    transaction::TransactionRequestBuilder,
+    Felt, Word,
 };
 use miden_clob::{create_partial_swap_note, try_match_swapp_notes};
-use miden_crypto::{Felt, Word};
 use miden_lib::transaction::TransactionKernel;
 use miden_testing::{Auth, MockChain};
 
 use miden_objects::{
-    testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2, transaction::OutputNote,
+    note::NoteDetails, testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2,
+    transaction::OutputNote,
 };
 
 #[test]
@@ -40,7 +42,6 @@ fn p2id_script_multiple_assets() {
             target_account.id(),
             &[fungible_asset_1, fungible_asset_2],
             NoteType::Public,
-            None,
         )
         .unwrap();
 
@@ -53,8 +54,6 @@ fn p2id_script_multiple_assets() {
 async fn swapp_match_mock_chain() -> anyhow::Result<()> {
     let mut mock_chain = MockChain::new();
     mock_chain.prove_until_block(1u32)?;
-
-    let assembler = TransactionKernel::assembler().with_debug_mode(true);
 
     // Initialize assets & accounts
     let asset_a: Asset =
@@ -117,7 +116,7 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
 
     mock_chain.add_pending_note(swapp_note1_output);
     mock_chain.add_pending_note(swapp_note2_output);
-    mock_chain.prove_next_block();
+    mock_chain.prove_next_block()?;
 
     let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher_account.id())
         .unwrap()
@@ -125,31 +124,37 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
 
     println!("built notes, executing tx");
 
-    let mut expected_outputs = vec![
-        swap_data.p2id_from_1_to_2.clone(),
-        swap_data.p2id_from_2_to_1.clone(),
+    let mut outputs = vec![
+        OutputNote::Full(swap_data.p2id_from_2_to_1),
+        OutputNote::Full(swap_data.p2id_from_1_to_2),
     ];
+
     if let Some(ref note) = swap_data.leftover_swapp_note {
-        expected_outputs.push(note.clone());
+        outputs.push(OutputNote::Full(note.clone()));
     }
-
-/*
-    let consume_req = TransactionRequestBuilder::new()
-        .with_authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args)),
-            (swap_note_2.id(), Some(swap_data.note2_args)),
-        ])
-        .with_expected_output_notes(expected_outputs)
-        .build()
-        .unwrap();
-
     // CONSTRUCT AND EXECUTE TX (Success - Target Account)
     let executed_transaction_1 = mock_chain
-        .build_tx_context(matcher_account.id(), &[swap_note_1.id(), swap_note_2.id()], &[]);
+        .build_tx_context(
+            matcher_account.id(),
+            &[swap_note_1.id(), swap_note_2.id()],
+            &[],
+        )?
+        .extend_expected_output_notes(outputs)
+        .build()?
+        .execute()
+        .await?;
 
-    let target_account = mock_chain.add_pending_executed_transaction(&executed_transaction_1);
- */
+    let target_account = mock_chain.add_pending_executed_transaction(&executed_transaction_1)?;
+
+    println!(
+        "asset a: {:?} asset b: {:?}",
+        target_account
+            .vault()
+            .get_balance(AccountId::try_from(asset_a.unwrap_fungible().faucet_id())?),
+        target_account
+            .vault()
+            .get_balance(AccountId::try_from(asset_b.unwrap_fungible().faucet_id())?)
+    );
 
     Ok(())
 }
- */

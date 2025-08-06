@@ -11,6 +11,7 @@ miden-objects = { version = "0.10.0", default-features = false }
 miden-tx = "0.10.0"
 miden-crypto = { version = "0.15.7", features = ["executable"] }
 miden-assembly = "0.15.0"
+miden-testing = "0.10.1"
 
 rand = { version = "0.9" }
 serde = { version = "1", features = ["derive"] }
