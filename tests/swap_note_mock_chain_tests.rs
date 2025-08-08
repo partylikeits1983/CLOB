@@ -1,23 +1,15 @@
-use std::{fs, path::Path};
-
 use miden_client::{
-    account::{Account, AccountId},
-    asset::{Asset, AssetVault, FungibleAsset},
-    note::{
-        Note, NoteAssets, NoteExecutionHint, NoteExecutionMode, NoteInputs, NoteMetadata,
-        NoteRecipient, NoteScript, NoteTag, NoteType,
-    },
+    account::AccountId,
+    asset::{Asset, FungibleAsset},
+    note::NoteType,
     testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1,
-    transaction::TransactionRequestBuilder,
-    Felt, Word,
+    Word,
 };
 use miden_clob::{create_partial_swap_note, try_match_swapp_notes};
-use miden_lib::transaction::TransactionKernel;
 use miden_testing::{Auth, MockChain};
 
 use miden_objects::{
-    note::NoteDetails, testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2,
-    transaction::OutputNote,
+    testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2, transaction::OutputNote,
 };
 
 #[test]
