@@ -1,7 +1,7 @@
 use.miden::account
 use.miden::account_id
-use.miden::note
 use.miden::contracts::wallets::basic->wallet
+use.miden::note
 
 # ERRORS
 # =================================================================================================
@@ -9,8 +9,6 @@ use.miden::contracts::wallets::basic->wallet
 const.ERR_P2ID_WRONG_NUMBER_OF_INPUTS="P2ID note expects exactly 2 note inputs"
 
 const.ERR_P2ID_TARGET_ACCT_MISMATCH="P2ID's target account address and transaction address do not match"
-
-
 
 #! Helper procedure to add all assets of a note to an account.
 #!
@@ -63,9 +61,6 @@ proc.add_note_assets_to_account
     # clear the stack
     drop dropw drop
 end
-
-
-
 
 #! Pay-to-ID script: adds all assets from the note to the account, assuming ID of the account
 #! matches target account ID specified by the note inputs.

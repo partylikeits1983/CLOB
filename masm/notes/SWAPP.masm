@@ -1,10 +1,10 @@
-use.miden::note
-use.miden::contracts::wallets::basic->wallet
-use.std::sys
 use.miden::account
-use.std::math::u64
+use.miden::contracts::wallets::basic->wallet
+use.miden::note
 use.miden::tx
 use.std::crypto::hashes::rpo
+use.std::math::u64
+use.std::sys
 
 # CONSTANTS
 # =================================================================================================
@@ -68,7 +68,6 @@ const.P2ID_OUTPUT_RECIPIENT_WORD = 0x0060
 const.OFFERED_ASSET_WORD = 0x0064
 
 # Temporary Memory Addresses
-
 const.NEW_ASSET_A = 0x0078
 
 # ERRORS
@@ -219,8 +218,7 @@ end
 #!
 proc.increment_swap_count
     mem_load.SWAPP_COUNT_INPUT
-    push.1
-    add
+    add.1
     mem_store.SWAPP_COUNT_INPUT
 end
 
@@ -235,8 +233,7 @@ end
 # output: [get_serial_number + 1]
 proc.get_new_swap_serial_num
     exec.note::get_serial_number
-    push.1
-    add
+    add.1
 end
 
 #! Returns if the currently consuming account is the creator of the note
@@ -262,9 +259,11 @@ proc.is_consumer_is_creator
 
     if.true
         # => [acct_id_suffix_input, acct_id_suffix]
+
         eq
     else
         # => [acct_id_suffix_input, acct_id_suffix]
+
         drop drop push.0
     end
     # => [is_creator]
@@ -375,10 +374,9 @@ proc.execute_SWAPp
 
         mem_store.AMT_TOKENS_B_IN
         # => []
-    else
-        # no need to verify that amount tokens b via note args is
-        # valid bc if it isn't call.wallet::send_asset will fail
     end
+    # no need to verify that amount tokens b via note args is
+    # valid bc if it isn't call.wallet::send_asset will fail
     # = []
 
     mem_load.AMT_TOKENS_B_IN
@@ -419,7 +417,7 @@ proc.execute_SWAPp
     # 3) create SWAPp' and calculate token_a' & token_b'
     # 4) add token_a' and token_b' to SWAPp'
 
-    padw mem_loadw.P2ID_SCRIPT_ROOT_WORD
+    mem_loadw.P2ID_SCRIPT_ROOT_WORD
     # => [P2ID_SCRIPT_HASH]
 
     exec.increment_swap_count
@@ -451,7 +449,7 @@ proc.execute_SWAPp
     # => [tag, aux, note_type, execution_hint, RECIPIENT]
 
     call.tx::create_note
-    # => [note_idx, pad(15) ...]
+    # => [note_idx]
 
     mem_load.AMT_TOKENS_B_IN
     push.0
@@ -460,7 +458,7 @@ proc.execute_SWAPp
     # => [ASSET, note_idx]
 
     call.wallet::move_asset_to_note
-    # => [ASSET, note_idx, pad(11)]
+    # => [ASSET, note_idx]
 
     dropw drop
     # => []
@@ -478,6 +476,7 @@ proc.execute_SWAPp
     mem_load.IS_PARTIAL_FILL
     # => [is_partial_fill]
 
+    # if partial fill, create SWAPP` note
     if.true
         mem_load.AMT_TOKENS_B mem_load.AMT_TOKENS_B_IN sub
         # => [token_b_AMT']
@@ -526,6 +525,7 @@ proc.execute_SWAPp
         mem_load.TOKEN_A_ID_PREFIX
         # => [ASSET, payback_tag, aux, note_type, SWAPp_RECIPIENT]
 
+        # move offered asset into account vault
         dupw call.wallet::receive_asset
         # => [ASSET, payback_tag, aux, note_type, SWAPp_RECIPIENT]
 
@@ -533,18 +533,18 @@ proc.execute_SWAPp
         # => [payback_tag, aux, note_type, SWAPp_RECIPIENT]
         # => [tag, aux, note_type, execution_hint, RECIPIENT]
 
-        # SWAPp' creation
+        # SWAPP' creation
         call.tx::create_note
-        # => [note_idx, pad(15) ...]
+        # => [note_idx]
 
         padw
-        # => [EMPTY_WORD, note_idx, pad(15) ...]
+        # => [EMPTY_WORD, note_idx]
 
         mem_loadw.NEW_ASSET_A
-        # => [ASSET, note_idx, pad(15) ...]
+        # => [ASSET, note_idx]
 
         call.wallet::move_asset_to_note
-        # => [ASSET, note_idx, pad(11)]
+        # => [ASSET, note_idx]
 
         dropw drop
         # => []
@@ -555,8 +555,8 @@ proc.execute_SWAPp
         nop
     end
 
-    # clean stack
-    exec.sys::truncate_stack
+    dropw dropw
+    # => []
 end
 
 begin

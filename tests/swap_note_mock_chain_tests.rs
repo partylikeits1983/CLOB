@@ -37,8 +37,6 @@ fn p2id_script_multiple_assets() {
         )
         .unwrap();
 
-    mock_chain.prove_next_block();
-
     println!("p2id script hash: {:?}", note.script().root());
 }
 
@@ -135,6 +133,8 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
         .build()?
         .execute()
         .await?;
+
+    println!("cycles: {:?}", executed_transaction_1.measurements().total_cycles());
 
     let target_account = mock_chain.add_pending_executed_transaction(&executed_transaction_1)?;
 
