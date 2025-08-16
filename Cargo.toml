@@ -5,10 +5,10 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-miden-client = { version = "0.10.0", features = ["testing", "tonic", "sqlite"] }
-miden-lib = { version = "0.10.0", default-features = false }
-miden-objects = { version = "0.10.0", default-features = false }
-miden-tx = "0.10.0"
+miden-client = { version = "0.10.2", features = ["testing", "tonic", "sqlite"] }
+miden-lib = { version = "0.10.1", default-features = false }
+miden-objects = { version = "0.10.1", default-features = false }
+miden-tx = "0.10.1"
 miden-crypto = { version = "0.15.7", features = ["executable"] }
 miden-assembly = "0.15.0"
 miden-testing = "0.10.1"
@@ -61,3 +61,7 @@ path = "src/bin/depth_chart.rs"
 [[bin]]
 name = "matching_engine"
 path = "src/bin/matching_engine.rs"
+
+[[bin]]
+name = "deploy_faucets"
+path = "src/bin/testing/deploy_faucets.rs"

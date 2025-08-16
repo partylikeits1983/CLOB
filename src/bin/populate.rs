@@ -2,6 +2,7 @@ use miden_clob::note_serialization;
 
 use anyhow::{anyhow, Result};
 use dotenv::dotenv;
+use miden_objects::account::NetworkId;
 use rand::{rng, Rng};
 use reqwest;
 use serde::Deserialize;
@@ -149,10 +150,10 @@ impl MarketMaker {
                 QUANTITY_VARIANCE={}\n\
                 PRICE_VARIANCE={}\n\
                 UPDATE_INTERVAL_SECS={}\n",
-                faucets[0].id().to_hex(),      // USDC
-                faucets[1].id().to_hex(),      // ETH
-                matcher_account.id().to_hex(), // Matcher account
-                miden_endpoint,                // Miden node endpoint
+                faucets[0].id().to_bech32(NetworkId::Testnet), // USDC
+                faucets[1].id().to_bech32(NetworkId::Testnet), // ETH
+                matcher_account.id().to_hex(),                 // Matcher account
+                miden_endpoint,                                // Miden node endpoint
                 server_url,
                 config.spread_percentage,
                 config.num_levels,
@@ -199,17 +200,17 @@ impl MarketMaker {
             let mut client = instantiate_client(endpoint).await?;
             client.sync_state().await.unwrap();
 
-            let usdc_id = AccountId::from_hex(&usdc_faucet_id)?;
-            let eth_id = AccountId::from_hex(&eth_faucet_id)?;
+            let (_, usdc_faucet_id) = AccountId::from_bech32(&env::var("USDC_FAUCET_ID")?)?;
+            let (_, eth_faucet_id) = AccountId::from_bech32(&env::var("ETH_FAUCET_ID")?)?;
 
             // Try to import faucets, but don't fail if they don't exist
-            if let Err(e) = client.import_account_by_id(usdc_id).await {
+            if let Err(e) = client.import_account_by_id(usdc_faucet_id).await {
                 warn!(
                     "Failed to import USDC faucet (this is expected if running without setup): {}",
                     e
                 );
             }
-            if let Err(e) = client.import_account_by_id(eth_id).await {
+            if let Err(e) = client.import_account_by_id(eth_faucet_id).await {
                 warn!(
                     "Failed to import ETH faucet (this is expected if running without setup): {}",
                     e
@@ -323,8 +324,8 @@ impl MarketMaker {
 
         // Load environment variables
         dotenv().ok();
-        let usdc_faucet_id = AccountId::from_hex(&env::var("USDC_FAUCET_ID")?)?;
-        let eth_faucet_id = AccountId::from_hex(&env::var("ETH_FAUCET_ID")?)?;
+        let (_, usdc_faucet_id) = AccountId::from_bech32(&env::var("USDC_FAUCET_ID")?)?;
+        let (_, eth_faucet_id) = AccountId::from_bech32(&env::var("ETH_FAUCET_ID")?)?;
 
         let mut rng = rng();
         let spread = eth_price * self.config.spread_percentage / 100.0;

@@ -1532,9 +1532,9 @@ dependencies = [
 
 [[package]]
 name = "miden-client"
-version = "0.10.0"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4fbef2496069d8e9930797311bf5049697af9cb694245f2b14754a2cdb39118"
+checksum = "81d6919717af3942326fb8364ee228b4734197557ef64aa18c9f22d6d8196fbc"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1671,9 +1671,9 @@ dependencies = [
 
 [[package]]
 name = "miden-lib"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4596588ec57bb419020d6877366f16fd349ab957ff3cc60f2c6ebe33a75b393"
+checksum = "02754594a6012f75dfeb8c07edcf55e9d6754e43009876bb0be7f4a86a76c31d"
 dependencies = [
  "miden-assembly",
  "miden-objects",
@@ -1739,9 +1739,9 @@ dependencies = [
 
 [[package]]
 name = "miden-objects"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9a14394feac6a439f1bed545607d2bd0f01fe53e8e5d2dd35d7c90376e88c4b"
+checksum = "06388ea1e20ffdfc36773e5ed1dfae53ef4dffd713a426b0caf975b3b9ddd848"
 dependencies = [
  "bech32",
  "getrandom 0.3.3",
@@ -1840,9 +1840,9 @@ dependencies = [
 
 [[package]]
 name = "miden-tx"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca703cc8580c01df23beb50fbb7b62f9b8157c2dc4b8a0b3ba6a9a6d77ffaf99"
+checksum = "788eb05419dad5282652d7bd443af239f1a4b4045cf47d63da27ddf8675ab5bc"
 dependencies = [
  "async-trait",
  "miden-lib",
