@@ -4,7 +4,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use dotenv::dotenv;
+use miden_client::account::AccountId;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
@@ -247,41 +250,155 @@ async fn get_user_orders(
     }
 }
 
+/// Convert order price to consistent USDC per ETH price
+fn calculate_usdc_per_eth_price(
+    order: &SwapNoteRecord,
+    usdc_faucet_id: &AccountId,
+    eth_faucet_id: &AccountId,
+) -> Option<f64> {
+    let offered_asset_id = AccountId::from_hex(&order.offered_asset_id).ok()?;
+    let requested_asset_id = AccountId::from_hex(&order.requested_asset_id).ok()?;
+
+    if offered_asset_id == *usdc_faucet_id && requested_asset_id == *eth_faucet_id {
+        // Bid: offering USDC for ETH
+        // Price = USDC amount / ETH amount
+        let usdc_amount = order.offered_amount as f64;
+        let eth_amount = order.requested_amount as f64;
+        if eth_amount > 0.0 {
+            Some(usdc_amount / eth_amount)
+        } else {
+            None
+        }
+    } else if offered_asset_id == *eth_faucet_id && requested_asset_id == *usdc_faucet_id {
+        // Ask: offering ETH for USDC
+        // Price = USDC amount / ETH amount
+        let usdc_amount = order.requested_amount as f64;
+        let eth_amount = order.offered_amount as f64;
+        if eth_amount > 0.0 {
+            Some(usdc_amount / eth_amount)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
 async fn get_depth_chart(
     State(state): State<AppState>,
     Path((base_asset, quote_asset)): Path<(String, String)>,
 ) -> Result<Json<DepthChartResponse>, (StatusCode, String)> {
-    match state.db.get_orderbook(&base_asset, &quote_asset).await {
-        Ok((bids, asks)) => {
-            let mut bid_levels = Vec::new();
-            let mut ask_levels = Vec::new();
+    // Load environment variables to get faucet IDs
+    dotenv().ok();
 
-            // Convert bids to depth levels
+    // Get faucet IDs from environment (same approach as depth_chart.rs)
+    let (usdc_faucet, eth_faucet) = match (base_asset.as_str(), quote_asset.as_str()) {
+        ("ETH", "USDC") => {
+            let usdc_faucet_id = env::var("USDC_FAUCET_ID").map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "USDC_FAUCET_ID not found in environment".to_string(),
+                )
+            })?;
+            let eth_faucet_id = env::var("ETH_FAUCET_ID").map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "ETH_FAUCET_ID not found in environment".to_string(),
+                )
+            })?;
+
+            // Convert bech32 to AccountId for comparison (same pattern as depth_chart.rs)
+            let (_, usdc_faucet) = AccountId::from_bech32(&usdc_faucet_id).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Invalid USDC faucet ID: {}", e),
+                )
+            })?;
+            let (_, eth_faucet) = AccountId::from_bech32(&eth_faucet_id).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Invalid ETH faucet ID: {}", e),
+                )
+            })?;
+
+            (usdc_faucet, eth_faucet)
+        }
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Unsupported asset pair: {}/{}", base_asset, quote_asset),
+            ));
+        }
+    };
+
+    // Use the same approach as depth_chart.rs: get all open orders and filter them
+    match state.db.get_open_swap_notes().await {
+        Ok(open_orders) => {
+            let mut bids = Vec::new();
+            let mut asks = Vec::new();
+
+            // Process orders the same way as depth_chart.rs and common.rs
+            for order in &open_orders {
+                // Parse asset IDs from hex strings to AccountId for comparison
+                let offered_asset_id = match AccountId::from_hex(&order.offered_asset_id) {
+                    Ok(id) => id,
+                    Err(_) => continue, // Skip invalid asset IDs
+                };
+                let requested_asset_id = match AccountId::from_hex(&order.requested_asset_id) {
+                    Ok(id) => id,
+                    Err(_) => continue, // Skip invalid asset IDs
+                };
+
+                // Calculate consistent USDC per ETH price
+                let usdc_per_eth_price =
+                    match calculate_usdc_per_eth_price(order, &usdc_faucet, &eth_faucet) {
+                        Some(price) => price,
+                        None => continue, // Skip orders we can't price
+                    };
+
+                // Determine if this is a bid or ask and get the ETH quantity
+                if offered_asset_id == usdc_faucet && requested_asset_id == eth_faucet {
+                    // Bid: offering USDC for ETH
+                    let eth_quantity = order.requested_amount as f64;
+                    bids.push((usdc_per_eth_price, eth_quantity, order.clone()));
+                } else if offered_asset_id == eth_faucet && requested_asset_id == usdc_faucet {
+                    // Ask: offering ETH for USDC
+                    let eth_quantity = order.offered_amount as f64;
+                    asks.push((usdc_per_eth_price, eth_quantity, order.clone()));
+                }
+            }
+
+            // Sort bids by price (descending - highest first)
+            bids.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+
+            // Sort asks by price (ascending - lowest first)
+            asks.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+            // Convert to depth levels with cumulative quantities
+            let mut bid_levels = Vec::new();
             let mut cumulative_bid_volume = 0.0;
-            for bid in &bids {
-                let quantity = bid.offered_amount as f64;
-                cumulative_bid_volume += quantity;
+            for (price, eth_quantity, _order) in &bids {
+                cumulative_bid_volume += eth_quantity;
                 bid_levels.push(DepthLevel {
-                    price: bid.price,
-                    quantity,
+                    price: *price,
+                    quantity: *eth_quantity,
                     cumulative_quantity: cumulative_bid_volume,
                 });
             }
 
-            // Convert asks to depth levels
+            let mut ask_levels = Vec::new();
             let mut cumulative_ask_volume = 0.0;
-            for ask in &asks {
-                let quantity = ask.offered_amount as f64;
-                cumulative_ask_volume += quantity;
+            for (price, eth_quantity, _order) in &asks {
+                cumulative_ask_volume += eth_quantity;
                 ask_levels.push(DepthLevel {
-                    price: ask.price,
-                    quantity,
+                    price: *price,
+                    quantity: *eth_quantity,
                     cumulative_quantity: cumulative_ask_volume,
                 });
             }
 
-            let best_bid = bids.first().map(|b| b.price);
-            let best_ask = asks.first().map(|a| a.price);
+            let best_bid = bids.first().map(|(price, _, _)| *price);
+            let best_ask = asks.first().map(|(price, _, _)| *price);
 
             let (spread, spread_percentage, mid_price) = match (best_bid, best_ask) {
                 (Some(bid), Some(ask)) => {
@@ -303,6 +420,12 @@ async fn get_depth_chart(
                 total_ask_volume: cumulative_ask_volume,
             };
 
+            info!(
+                "Depth chart generated: {} bids, {} asks",
+                bid_levels.len(),
+                ask_levels.len()
+            );
+
             Ok(Json(DepthChartResponse {
                 bids: bid_levels,
                 asks: ask_levels,
@@ -310,7 +433,7 @@ async fn get_depth_chart(
             }))
         }
         Err(e) => {
-            error!("Failed to get depth chart: {}", e);
+            error!("Failed to get open swap notes: {}", e);
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to get depth chart: {}", e),

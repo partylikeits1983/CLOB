@@ -33,8 +33,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eth_faucet_id = env::var("ETH_FAUCET_ID").expect("ETH_FAUCET_ID must be set in .env file");
 
     // Parse faucet IDs
-    let usdc_faucet = AccountId::from_hex(&usdc_faucet_id)?;
-    let eth_faucet = AccountId::from_hex(&eth_faucet_id)?;
+    let (_, usdc_faucet) = AccountId::from_bech32(&usdc_faucet_id)?;
+    let (_, eth_faucet) = AccountId::from_bech32(&eth_faucet_id)?;
 
     // Connect to database
     let database_url = "sqlite:./clob.sqlite3";

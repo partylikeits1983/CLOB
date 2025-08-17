@@ -632,7 +632,9 @@ async fn main() -> Result<()> {
     // Enhanced configuration for more orders
     let config = MarketMakerConfig::default();
 
-    let server_url = "http://localhost:3000".to_string();
+    // Load server URL from environment variable
+    dotenv().ok();
+    let server_url = env::var("SERVER_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     if is_setup_mode {
         println!("🔧 Running in SETUP mode - creating faucets and accounts");

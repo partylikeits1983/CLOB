@@ -5,6 +5,8 @@ mod orderbook;
 mod server;
 
 use anyhow::Result;
+use dotenv::dotenv;
+use std::env;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
@@ -16,6 +18,9 @@ use server::{create_router, AppState};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load environment variables
+    dotenv().ok();
+
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter("info,miden_clob=debug")
@@ -56,9 +61,14 @@ async fn main() -> Result<()> {
     // Create router
     let app = create_router(state);
 
+    // Get port from environment variable
+    let server_url = env::var("SERVER_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let port = server_url.split(':').last().unwrap_or("8080");
+    let bind_address = format!("0.0.0.0:{}", port);
+
     // Bind to address
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    info!("Server listening on http://0.0.0.0:3000");
+    let listener = tokio::net::TcpListener::bind(&bind_address).await?;
+    info!("Server listening on http://{}", bind_address);
 
     // Print available endpoints
     println!("\n🚀 Miden CLOB Server is running!");
@@ -70,8 +80,8 @@ async fn main() -> Result<()> {
     println!("  GET  /depth/:base/:quote        - Get depth chart");
     println!("  POST /match                     - Trigger matching");
     println!("  GET  /stats                     - Get server stats");
-    println!("🌐 Server address: http://localhost:3000");
-    println!("📊 Example: http://localhost:3000/health\n");
+    println!("🌐 Server address: {}", server_url);
+    println!("📊 Example: {}/health\n", server_url);
 
     // Start server
     axum::serve(listener, app).await?;
