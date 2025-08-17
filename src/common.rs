@@ -259,6 +259,8 @@ pub fn create_partial_swap_note(
     let swapp_tag = build_swap_tag(note_type, &offered_asset, &requested_asset)?;
     let p2id_tag = NoteTag::from_account_id(creator);
 
+    println!("HERE: {:?}", requested_asset_word);
+
     let inputs = NoteInputs::new(vec![
         requested_asset_word[0],
         requested_asset_word[1],
@@ -763,7 +765,34 @@ pub fn decompose_swapp_note(note: &Note) -> Result<(FungibleAsset, FungibleAsset
     let note_inputs: &[Felt] = note.inputs().values();
     let requested: &[Felt] = note_inputs.get(..4).expect("note has fewer than 4 inputs");
 
-    let requested_id = AccountId::try_from([requested[3], requested[2]]).unwrap();
+    // Handle AccountId creation more gracefully with detailed logging
+    let requested_id = match AccountId::try_from([requested[3], requested[2]]) {
+        Ok(id) => id,
+        Err(e) => {
+            eprintln!(
+                "❌ Error creating AccountId from [{}, {}]: {}",
+                requested[3], requested[2], e
+            );
+            eprintln!(
+                "📝 Full note inputs ({} total): {:?}",
+                note_inputs.len(),
+                note_inputs
+            );
+            eprintln!(
+                "🔍 First 4 inputs (requested asset): {:?}",
+                &note_inputs[..4]
+            );
+            if note_inputs.len() >= 14 {
+                eprintln!(
+                    "🔍 Creator inputs [12-13]: [{}, {}]",
+                    note_inputs[12], note_inputs[13]
+                );
+            }
+            // Return a more specific error
+            panic!("Failed to create AccountId from note inputs: {}", e);
+        }
+    };
+
     let requested_asset = FungibleAsset::new(requested_id, requested[0].as_int()).unwrap();
 
     Ok((offered_asset, requested_asset))

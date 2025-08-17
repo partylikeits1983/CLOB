@@ -16,11 +16,22 @@ pub fn deserialize_note(encoded: &str) -> Result<Note> {
         .decode(encoded)
         .map_err(|e| anyhow!("Failed to decode base64: {}", e))?;
 
-    // Deserialize the note from bytes using the proper method
-    let note = Note::read_from_bytes(&note_bytes)
-        .map_err(|e| anyhow!("Failed to deserialize note: {}", e))?;
+    // Try to deserialize as raw note first
+    if let Ok(note) = Note::read_from_bytes(&note_bytes) {
+        return Ok(note);
+    }
 
-    Ok(note)
+    // If that fails, try to deserialize as a note file (from client.exportNote())
+    match miden_client::note::NoteFile::read_from_bytes(&note_bytes) {
+        Ok(note_file) => {
+            // Extract the note from the note file - only handle NoteWithProof for simplicity
+            match note_file {
+                miden_client::note::NoteFile::NoteWithProof(note, _proof) => Ok(note),
+                _ => Err(anyhow!("Only NoteWithProof format is supported")),
+            }
+        }
+        Err(e) => Err(anyhow!("Failed to deserialize note: {}", e)),
+    }
 }
 
 // Helper function to extract key information from a note for database storage
