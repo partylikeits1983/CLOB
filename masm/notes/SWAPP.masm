@@ -459,6 +459,8 @@ proc.execute_SWAPp
     mem_load.TOKEN_B_ID_PREFIX
     # => [ASSET, note_idx]
 
+    push.111 debug.stack drop
+
     call.wallet::move_asset_to_note
     # => [ASSET, note_idx, pad(11)]
 

@@ -10,50 +10,57 @@ use miden_clob::{
 #[ignore]
 fn test_try_match_swapp_notes_arithmetic() {
     // ────────────────────────────────────────────────────────────
-    // 1.  Fixture: two opposite SWAPP orders
+    // Test case from the error message:
+    // Note 1: offers 10, wants 45290 (ratio: 4529)
+    // Note 2: offers 54360, wants 12 (ratio: 0.00022)
+    // Note 2 has a much better price and should be the maker (partially filled)
     // ────────────────────────────────────────────────────────────
 
-    let maker_id = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
-    let taker_id = AccountId::from_hex("0xbbb871c76d7a27100000cc8533e494").unwrap();
+    let note1_creator = AccountId::from_hex("0xa6511b8a76c05b1000009fdbdccce9").unwrap();
+    let note2_creator = AccountId::from_hex("0xbbb871c76d7a27100000cc8533e494").unwrap();
     let matcher = AccountId::from_hex("0xbbb871c76d7a27100000cc8533e494").unwrap();
 
     let faucet_a = AccountId::from_hex("0xe125e96a9af535200000a5dc5d4500").unwrap();
     let faucet_b = AccountId::from_hex("0x34d1b6993361072000005737e7ae4b").unwrap();
 
-    // 100 A for 100 B
-    let maker_note = create_partial_swap_note(
-        maker_id,
-        maker_id,                                          // last counter-party (self)
-        FungibleAsset::new(faucet_a, 100).unwrap().into(), // offered
-        FungibleAsset::new(faucet_b, 100).unwrap().into(), // wanted
+    // Note 1: Small order - offers 10 B, wants 45290 A
+    let note1 = create_partial_swap_note(
+        note1_creator,
+        note1_creator,
+        FungibleAsset::new(faucet_b, 10).unwrap().into(),     // offered
+        FungibleAsset::new(faucet_a, 45290).unwrap().into(),  // wanted
         Word::default(),
         0,
     )
     .unwrap();
 
-    // taker: 50 B  → 50 A
-    let taker_note = create_partial_swap_note(
-        taker_id,
-        taker_id,
-        FungibleAsset::new(faucet_b, 50).unwrap().into(), // offered
-        FungibleAsset::new(faucet_a, 50).unwrap().into(), // wanted
+    // Note 2: Large order - offers 54360 A, wants 12 B
+    let note2 = create_partial_swap_note(
+        note2_creator,
+        note2_creator,
+        FungibleAsset::new(faucet_a, 54360).unwrap().into(),  // offered
+        FungibleAsset::new(faucet_b, 12).unwrap().into(),     // wanted
         Word::default(),
         0,
     )
     .unwrap();
 
     // ────────────────────────────────────────────────────────────
-    // 2.  Run the matcher
+    // Run the matcher - should handle the order correctly regardless of input order
     // ────────────────────────────────────────────────────────────
-    let swap = try_match_swapp_notes(&maker_note, &taker_note, matcher)
+    let swap = try_match_swapp_notes(&note1, &note2, matcher)
         .unwrap()
         .expect("orders should cross");
 
     // ────────────────────────────────────────────────────────────
-    // 3.  Assertions
+    // Assertions
     // ────────────────────────────────────────────────────────────
-    // 3-a. P2ID amounts
-    let p2id_a_out = swap
+    
+    // The naming convention is confusing, but based on the actual output:
+    // p2id_from_1_to_2 contains what note1's creator receives
+    // p2id_from_2_to_1 contains what note2's creator receives
+    
+    let p2id_from_1_to_2 = swap
         .p2id_from_1_to_2
         .assets()
         .iter()
@@ -61,33 +68,46 @@ fn test_try_match_swapp_notes_arithmetic() {
         .unwrap()
         .unwrap_fungible();
 
-    assert_eq!(p2id_a_out.amount(), 50);
-    assert_eq!(p2id_a_out.faucet_id(), faucet_b);
-
-    let p2id_b_out = swap
+    let p2id_from_2_to_1 = swap
         .p2id_from_2_to_1
         .assets()
         .iter()
         .next()
         .unwrap()
         .unwrap_fungible();
-    assert_eq!(p2id_b_out.amount(), 50);
-    assert_eq!(p2id_b_out.faucet_id(), faucet_a);
 
-    // 3-b. Left-over maker SWAPP note (should be 25 A → 25 B)
+    // Note1 is fully filled: offers 10 B, receives 45290 A
+    // So p2id_from_1_to_2 should contain 45290 A (what note1 creator receives)
+    assert_eq!(p2id_from_1_to_2.amount(), 45290, "Note1 creator should receive 45290 A");
+    assert_eq!(p2id_from_1_to_2.faucet_id(), faucet_a);
+    
+    // Note2 is partially filled: offers 54360 A, receives 10 B
+    // So p2id_from_2_to_1 should contain 10 B (what note2 creator receives)
+    assert_eq!(p2id_from_2_to_1.amount(), 10, "Note2 creator should receive 10 B");
+    assert_eq!(p2id_from_2_to_1.faucet_id(), faucet_b);
+
+    // Note2 should have leftover (it's the maker, partially filled)
     let leftover = swap
         .leftover_swapp_note
         .as_ref()
-        .expect("maker not 100 % filled");
+        .expect("Note2 (maker) should not be 100% filled");
+    
     let (left_off, left_req) = decompose_swapp_note(leftover).unwrap();
-    assert_eq!(left_off.amount(), 50);
+    
+    // Leftover calculation:
+    // Note2 originally offered 54360 A and wanted 12 B
+    // It gave away 45290 A (to fill note1 completely)
+    // Leftover: 54360 - 45290 = 9070 A
+    // It received 10 B (all that note1 offered)
+    // Still wants: 12 - 10 = 2 B
+    assert_eq!(left_off.amount(), 9070, "Leftover should offer 9070 A");
     assert_eq!(left_off.faucet_id(), faucet_a);
-    assert_eq!(left_req.amount(), 50);
+    assert_eq!(left_req.amount(), 2, "Leftover should still want 2 B");
     assert_eq!(left_req.faucet_id(), faucet_b);
 
-    // 3-c. Note-args semantics
-    assert_eq!(swap.note1_args[3].as_int(), 50); // maker receives 25 B
-    assert_eq!(swap.note2_args[3].as_int(), 50); // taker receives 25 A
+    // Note arguments - these represent what each note receives
+    assert_eq!(swap.note1_args[3].as_int(), 45290, "Note1 arg: receives 45290 A");
+    assert_eq!(swap.note2_args[3].as_int(), 10, "Note2 arg: receives 10 B");
 }
 
 #[test]

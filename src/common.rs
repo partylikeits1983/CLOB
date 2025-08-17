@@ -77,7 +77,7 @@ pub async fn create_basic_faucet(
     let key_pair = SecretKey::with_rng(client.rng());
     let symbol = TokenSymbol::new("MID").unwrap();
     let decimals = 8;
-    let max_supply = Felt::new(1_000_000_000);
+    let max_supply = Felt::new(1_000_000_000_000);
     let builder = AccountBuilder::new(init_seed)
         .account_type(AccountType::FungibleFaucet)
         .storage_mode(AccountStorageMode::Public)
@@ -913,6 +913,7 @@ impl fmt::Debug for MatchedSwap {
     }
 }
 
+
 pub fn try_match_swapp_notes(
     note1_in: &Note,
     note2_in: &Note,
@@ -1020,217 +1021,149 @@ pub fn try_match_swapp_notes(
         }));
     }
 
-    // compute output amounts
-    let (amount_a_1_p2id1, new_amount_a_note1, new_amount_b_note1) =
-        compute_partial_swapp(offer1_raw.amount(), want1_raw.amount(), offer2_raw.amount());
-
-    let (amount_a_1_p2id2, new_amount_a_note2, new_amount_b_note2) =
-        compute_partial_swapp(offer2_raw.amount(), want2_raw.amount(), offer1_raw.amount());
-
-    // ──one side must be fully filled ──────────────────────────
-    let note1_filled = new_amount_a_note1 == 0 && new_amount_b_note1 == 0;
-    let note2_filled = new_amount_a_note2 == 0 && new_amount_b_note2 == 0;
-
-    let note1_swap_cnt = note1_in.inputs().values()[8].as_int();
-    let note2_swap_cnt = note2_in.inputs().values()[8].as_int();
-
-    println!("##############################################\n\n");
-
-    println!("SWAP COUNT: {:?}", note1_swap_cnt);
-    println!("SWAP COUNT: {:?}", note2_swap_cnt);
-
-    println!("##############################################\n\n");
-
-    println!("offer1_raw: {:?}", offer1_raw.amount());
-    println!("want1_raw: {:?}", want1_raw.amount());
-    println!("offer2_raw: {:?}", offer2_raw.amount());
-    println!("want2_raw: {:?}", want2_raw.amount());
-
-    println!("##############################################\n\n");
-    println!("amount_a_1_p2id1: {:?}", amount_a_1_p2id1);
-    println!("new_amount_a_note1: {:?}", new_amount_a_note1);
-    println!("new_amount_b_note1: {:?}", new_amount_b_note1);
-    println!("amount_a_1_p2id2: {:?}", amount_a_1_p2id2);
-    println!("new_amount_a_note2: {:?}", new_amount_a_note2);
-    println!("new_amount_b_note2: {:?}", new_amount_b_note2);
-
-    // both notes still have leftover amounts → not a valid match
-    if !note1_filled && !note2_filled {
-        return Ok(None);
-    }
-
-    // Prices do not align, can't match orders
-    if amount_a_1_p2id1 == 0 || amount_a_1_p2id2 == 0 {
-        return Ok(None);
-    }
-
-    // make note 1 in, the note that is partially filled. ie. the note that has amounts left over
-    // Make note1 the partially filled note
-    let (
-        note1_in,
-        note2_in,
-        _new_amount_a_note1,
-        _new_amount_b_note1,
-        _new_amount_a_note2,
-        _new_amount_b_note2,
-        _amount_a_1_p2id1,
-        amount_a_1_p2id2,
-    ) = if !note2_filled && note1_filled {
-        // swap note1_in and note2_in (and all their associated data)
-        println!("note 1 bigger");
-        (
-            note2_in,
-            note1_in,
-            new_amount_a_note2,
-            new_amount_b_note2,
-            new_amount_a_note1,
-            new_amount_b_note1,
-            amount_a_1_p2id2,
-            amount_a_1_p2id1,
-        )
-    } else {
-        println!("note 2 bigger");
-
-        (
-            note1_in,
-            note2_in,
-            new_amount_a_note1,
-            new_amount_b_note1,
-            new_amount_a_note2,
-            new_amount_b_note2,
-            amount_a_1_p2id1,
-            amount_a_1_p2id2,
-        )
+    // Determine which note is the maker (partially filled) and which is the taker (fully filled)
+    // The maker is the one with the larger order that will be partially filled
+    let (maker_note, taker_note, swapped) = {
+        // Calculate the fill ratios to determine which order is larger
+        let ratio1 = (offer1_raw.amount() as f64) / (want2_raw.amount() as f64);
+        let ratio2 = (offer2_raw.amount() as f64) / (want1_raw.amount() as f64);
+        
+        // The order with the higher ratio is the maker (will be partially filled)
+        if ratio1 > ratio2 {
+            (note1_in, note2_in, false)
+        } else {
+            (note2_in, note1_in, true)
+        }
     };
 
-    let (offer1_raw, want1_raw) = decompose_swapp_note(note1_in)?;
-    let (offer2_raw, want2_raw) = decompose_swapp_note(note2_in)?;
+    // Decompose the reordered notes
+    let (maker_offer, maker_want) = decompose_swapp_note(maker_note)?;
+    let (taker_offer, taker_want) = decompose_swapp_note(taker_note)?;
 
-    println!("POST SWAP");
-    println!("\n");
-    println!("offer1_raw: {:?}", offer1_raw.amount());
-    println!("want1_raw: {:?}", want1_raw.amount());
-    println!("offer2_raw: {:?}", offer2_raw.amount());
-    println!("want2_raw: {:?}", want2_raw.amount());
-    println!("\n");
+    // Compute the partial swap for the maker note
+    let (amount_out_maker, new_maker_offer, new_maker_want) =
+        compute_partial_swapp(maker_offer.amount(), maker_want.amount(), taker_offer.amount());
 
-    let p2id_note1_output_requested_asset =
-        FungibleAsset::new(want1_raw.faucet_id(), amount_a_1_p2id2).unwrap();
+    // The taker gets exactly what they want
+    let amount_out_taker = taker_want.amount();
 
-    let p2id_note2_output_requested_asset =
-        FungibleAsset::new(want2_raw.faucet_id(), want2_raw.amount()).unwrap();
+    println!("##############################################\n\n");
+    println!("SWAP COUNT maker: {:?}", maker_note.inputs().values()[8].as_int());
+    println!("SWAP COUNT taker: {:?}", taker_note.inputs().values()[8].as_int());
+    println!("##############################################\n\n");
+    println!("maker_offer: {:?}", maker_offer.amount());
+    println!("maker_want: {:?}", maker_want.amount());
+    println!("taker_offer: {:?}", taker_offer.amount());
+    println!("taker_want: {:?}", taker_want.amount());
+    println!("##############################################\n\n");
+    println!("amount_out_maker: {:?}", amount_out_maker);
+    println!("new_maker_offer: {:?}", new_maker_offer);
+    println!("new_maker_want: {:?}", new_maker_want);
+    println!("amount_out_taker: {:?}", amount_out_taker);
 
-    let note1_creator = creator_of(note1_in);
-    let note2_creator = creator_of(note2_in);
-
-    let note1_swap_cnt = note1_in.inputs().values()[8].as_int();
-    let note2_swap_cnt = note2_in.inputs().values()[8].as_int();
-    let note1_p2id_serial_num = get_p2id_serial_num(note1_in.serial_num(), note1_swap_cnt + 1);
-    let note2_p2id_serial_num = get_p2id_serial_num(note2_in.serial_num(), note2_swap_cnt + 1);
-
-    let p2id_output_note1 = create_p2id_note(
-        matcher,
-        note1_creator,
-        vec![p2id_note1_output_requested_asset.into()],
-        NoteType::Public,
-        Felt::new(0),
-        note1_p2id_serial_num,
-    )
-    .unwrap();
-
-    let p2id_output_note2 = create_p2id_note(
-        matcher,
-        note2_creator,
-        vec![p2id_note2_output_requested_asset.into()],
-        NoteType::Public,
-        Felt::new(0),
-        note2_p2id_serial_num,
-    )
-    .unwrap();
-
-    let (offer1_raw, want1_raw) = decompose_swapp_note(note1_in)?;
-    let (offer2_raw, want2_raw) = decompose_swapp_note(note2_in)?;
-
-    let (_amount_a_1_p2id2, new_amount_a_note2, new_amount_b_note2) =
-        compute_partial_swapp(offer1_raw.amount(), want1_raw.amount(), offer2_raw.amount());
-
-    let note1_args = [
-        Felt::new(0),
-        Felt::new(0),
-        Felt::new(0),
-        Felt::new(offer2_raw.amount()),
-    ];
-
-    let note2_args = [
-        Felt::new(0),
-        Felt::new(0),
-        Felt::new(0),
-        Felt::new(want2_raw.amount()),
-    ];
-
-    // If complete order fill
-    if new_amount_a_note1 == 0
-        && new_amount_b_note1 == 0
-        && new_amount_a_note2 == 0
-        && new_amount_b_note2 == 0
-    {
-        println!("complete fill");
-        return Ok(Some(MatchedSwap {
-            p2id_from_1_to_2: p2id_output_note1,
-            p2id_from_2_to_1: p2id_output_note2,
-            leftover_swapp_note: None,
-            swap_note_1: note1_in.clone(),
-            swap_note_2: note2_in.clone(),
-            note1_args,
-            note2_args,
-        }));
+    // Verify the match is valid
+    if amount_out_maker == 0 || amount_out_taker == 0 {
+        return Ok(None);
     }
 
-    let mut sn = note1_in.serial_num();
-    sn[3] = Felt::new(sn[3].as_int() + 1);
-    let swap_cnt = note1_swap_cnt + 1;
+    // Get creator IDs and swap counts
+    let maker_creator = creator_of(maker_note);
+    let taker_creator = creator_of(taker_note);
+    
+    let maker_swap_cnt = maker_note.inputs().values()[8].as_int();
+    let taker_swap_cnt = taker_note.inputs().values()[8].as_int();
+    
+    let maker_p2id_serial_num = get_p2id_serial_num(maker_note.serial_num(), maker_swap_cnt + 1);
+    let taker_p2id_serial_num = get_p2id_serial_num(taker_note.serial_num(), taker_swap_cnt + 1);
 
-    let leftover_swapp_note = Some(
-        create_partial_swap_note(
-            note1_creator,
-            matcher,
-            FungibleAsset::new(offer1_raw.faucet_id(), new_amount_a_note2)
-                .unwrap()
-                .into(),
-            FungibleAsset::new(want1_raw.faucet_id(), new_amount_b_note2)
-                .unwrap()
-                .into(),
-            sn,
-            swap_cnt,
+    // Create P2ID notes for the matched amounts
+    let p2id_to_maker = create_p2id_note(
+        matcher,
+        maker_creator,
+        vec![FungibleAsset::new(maker_want.faucet_id(), amount_out_maker).unwrap().into()],
+        NoteType::Public,
+        Felt::new(0),
+        maker_p2id_serial_num,
+    )
+    .unwrap();
+
+    let p2id_to_taker = create_p2id_note(
+        matcher,
+        taker_creator,
+        vec![FungibleAsset::new(taker_want.faucet_id(), amount_out_taker).unwrap().into()],
+        NoteType::Public,
+        Felt::new(0),
+        taker_p2id_serial_num,
+    )
+    .unwrap();
+
+    // Set up note arguments
+    let maker_args = [
+        Felt::new(0),
+        Felt::new(0),
+        Felt::new(0),
+        Felt::new(taker_offer.amount()),
+    ];
+
+    let taker_args = [
+        Felt::new(0),
+        Felt::new(0),
+        Felt::new(0),
+        Felt::new(amount_out_taker),
+    ];
+
+    // Check if this is a complete fill
+    let is_complete_fill = new_maker_offer == 0 && new_maker_want == 0;
+
+    let leftover_swapp_note = if !is_complete_fill {
+        // Create the leftover SWAPP note for the maker
+        let mut sn = maker_note.serial_num();
+        sn[3] = Felt::new(sn[3].as_int() + 1);
+        let swap_cnt = maker_swap_cnt + 1;
+
+        Some(
+            create_partial_swap_note(
+                maker_creator,
+                matcher,
+                FungibleAsset::new(maker_offer.faucet_id(), new_maker_offer)
+                    .unwrap()
+                    .into(),
+                FungibleAsset::new(maker_want.faucet_id(), new_maker_want)
+                    .unwrap()
+                    .into(),
+                sn,
+                swap_cnt,
+            )
+            .unwrap(),
         )
-        .unwrap(),
-    );
+    } else {
+        println!("complete fill");
+        None
+    };
 
-    println!(
-        "swap output: {:?}",
-        leftover_swapp_note.clone().unwrap().id()
-    );
-    println!(
-        "swap output: {:?}",
-        leftover_swapp_note.clone().unwrap().serial_num()
-    );
-    println!(
-        "swap output: {:?}",
-        leftover_swapp_note.clone().unwrap().recipient().digest()
-    );
-    println!(
-        "swap output asset id: {:?}",
-        leftover_swapp_note.clone().unwrap().assets()
-    );
+    if let Some(ref leftover) = leftover_swapp_note {
+        println!("swap output: {:?}", leftover.id());
+        println!("swap output: {:?}", leftover.serial_num());
+        println!("swap output: {:?}", leftover.recipient().digest());
+        println!("swap output asset id: {:?}", leftover.assets());
+    }
+
+    // Return the result with notes in the original order
+    let (final_p2id_1, final_p2id_2, final_note1, final_note2, final_args1, final_args2) =
+        if !swapped {
+            (p2id_to_maker, p2id_to_taker, maker_note.clone(), taker_note.clone(), maker_args, taker_args)
+        } else {
+            (p2id_to_taker, p2id_to_maker, taker_note.clone(), maker_note.clone(), taker_args, maker_args)
+        };
 
     Ok(Some(MatchedSwap {
-        p2id_from_1_to_2: p2id_output_note1,
-        p2id_from_2_to_1: p2id_output_note2,
+        p2id_from_1_to_2: final_p2id_1,
+        p2id_from_2_to_1: final_p2id_2,
         leftover_swapp_note,
-        swap_note_1: note1_in.clone(),
-        swap_note_2: note2_in.clone(),
-        note1_args,
-        note2_args,
+        swap_note_1: final_note1,
+        swap_note_2: final_note2,
+        note1_args: final_args1,
+        note2_args: final_args2,
     }))
 }
 

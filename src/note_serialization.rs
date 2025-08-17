@@ -12,7 +12,7 @@ pub fn serialize_note(note: &Note) -> Result<String> {
 
 pub fn deserialize_note(encoded: &str) -> Result<Note> {
     // Decode from base64
-    let note_bytes = general_purpose::STANDARD
+    let note_bytes: Vec<u8> = general_purpose::STANDARD
         .decode(encoded)
         .map_err(|e| anyhow!("Failed to decode base64: {}", e))?;
 
