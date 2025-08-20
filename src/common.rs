@@ -913,7 +913,6 @@ impl fmt::Debug for MatchedSwap {
     }
 }
 
-
 pub fn try_match_swapp_notes(
     note1_in: &Note,
     note2_in: &Note,
@@ -1027,7 +1026,7 @@ pub fn try_match_swapp_notes(
         // Calculate the fill ratios to determine which order is larger
         let ratio1 = (offer1_raw.amount() as f64) / (want2_raw.amount() as f64);
         let ratio2 = (offer2_raw.amount() as f64) / (want1_raw.amount() as f64);
-        
+
         // The order with the higher ratio is the maker (will be partially filled)
         if ratio1 > ratio2 {
             (note1_in, note2_in, false)
@@ -1041,15 +1040,24 @@ pub fn try_match_swapp_notes(
     let (taker_offer, taker_want) = decompose_swapp_note(taker_note)?;
 
     // Compute the partial swap for the maker note
-    let (amount_out_maker, new_maker_offer, new_maker_want) =
-        compute_partial_swapp(maker_offer.amount(), maker_want.amount(), taker_offer.amount());
+    let (amount_out_maker, new_maker_offer, new_maker_want) = compute_partial_swapp(
+        maker_offer.amount(),
+        maker_want.amount(),
+        taker_offer.amount(),
+    );
 
     // The taker gets exactly what they want
     let amount_out_taker = taker_want.amount();
 
     println!("##############################################\n\n");
-    println!("SWAP COUNT maker: {:?}", maker_note.inputs().values()[8].as_int());
-    println!("SWAP COUNT taker: {:?}", taker_note.inputs().values()[8].as_int());
+    println!(
+        "SWAP COUNT maker: {:?}",
+        maker_note.inputs().values()[8].as_int()
+    );
+    println!(
+        "SWAP COUNT taker: {:?}",
+        taker_note.inputs().values()[8].as_int()
+    );
     println!("##############################################\n\n");
     println!("maker_offer: {:?}", maker_offer.amount());
     println!("maker_want: {:?}", maker_want.amount());
@@ -1069,10 +1077,10 @@ pub fn try_match_swapp_notes(
     // Get creator IDs and swap counts
     let maker_creator = creator_of(maker_note);
     let taker_creator = creator_of(taker_note);
-    
+
     let maker_swap_cnt = maker_note.inputs().values()[8].as_int();
     let taker_swap_cnt = taker_note.inputs().values()[8].as_int();
-    
+
     let maker_p2id_serial_num = get_p2id_serial_num(maker_note.serial_num(), maker_swap_cnt + 1);
     let taker_p2id_serial_num = get_p2id_serial_num(taker_note.serial_num(), taker_swap_cnt + 1);
 
@@ -1080,7 +1088,9 @@ pub fn try_match_swapp_notes(
     let p2id_to_maker = create_p2id_note(
         matcher,
         maker_creator,
-        vec![FungibleAsset::new(maker_want.faucet_id(), amount_out_maker).unwrap().into()],
+        vec![FungibleAsset::new(maker_want.faucet_id(), amount_out_maker)
+            .unwrap()
+            .into()],
         NoteType::Public,
         Felt::new(0),
         maker_p2id_serial_num,
@@ -1090,7 +1100,9 @@ pub fn try_match_swapp_notes(
     let p2id_to_taker = create_p2id_note(
         matcher,
         taker_creator,
-        vec![FungibleAsset::new(taker_want.faucet_id(), amount_out_taker).unwrap().into()],
+        vec![FungibleAsset::new(taker_want.faucet_id(), amount_out_taker)
+            .unwrap()
+            .into()],
         NoteType::Public,
         Felt::new(0),
         taker_p2id_serial_num,
@@ -1151,9 +1163,23 @@ pub fn try_match_swapp_notes(
     // Return the result with notes in the original order
     let (final_p2id_1, final_p2id_2, final_note1, final_note2, final_args1, final_args2) =
         if !swapped {
-            (p2id_to_maker, p2id_to_taker, maker_note.clone(), taker_note.clone(), maker_args, taker_args)
+            (
+                p2id_to_maker,
+                p2id_to_taker,
+                maker_note.clone(),
+                taker_note.clone(),
+                maker_args,
+                taker_args,
+            )
         } else {
-            (p2id_to_taker, p2id_to_maker, taker_note.clone(), maker_note.clone(), taker_args, maker_args)
+            (
+                p2id_to_taker,
+                p2id_to_maker,
+                taker_note.clone(),
+                maker_note.clone(),
+                taker_args,
+                maker_args,
+            )
         };
 
     Ok(Some(MatchedSwap {

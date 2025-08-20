@@ -27,8 +27,8 @@ fn test_try_match_swapp_notes_arithmetic() {
     let note1 = create_partial_swap_note(
         note1_creator,
         note1_creator,
-        FungibleAsset::new(faucet_b, 10).unwrap().into(),     // offered
-        FungibleAsset::new(faucet_a, 45290).unwrap().into(),  // wanted
+        FungibleAsset::new(faucet_b, 10).unwrap().into(), // offered
+        FungibleAsset::new(faucet_a, 45290).unwrap().into(), // wanted
         Word::default(),
         0,
     )
@@ -38,8 +38,8 @@ fn test_try_match_swapp_notes_arithmetic() {
     let note2 = create_partial_swap_note(
         note2_creator,
         note2_creator,
-        FungibleAsset::new(faucet_a, 54360).unwrap().into(),  // offered
-        FungibleAsset::new(faucet_b, 12).unwrap().into(),     // wanted
+        FungibleAsset::new(faucet_a, 54360).unwrap().into(), // offered
+        FungibleAsset::new(faucet_b, 12).unwrap().into(),    // wanted
         Word::default(),
         0,
     )
@@ -55,11 +55,11 @@ fn test_try_match_swapp_notes_arithmetic() {
     // ────────────────────────────────────────────────────────────
     // Assertions
     // ────────────────────────────────────────────────────────────
-    
+
     // The naming convention is confusing, but based on the actual output:
     // p2id_from_1_to_2 contains what note1's creator receives
     // p2id_from_2_to_1 contains what note2's creator receives
-    
+
     let p2id_from_1_to_2 = swap
         .p2id_from_1_to_2
         .assets()
@@ -78,12 +78,20 @@ fn test_try_match_swapp_notes_arithmetic() {
 
     // Note1 is fully filled: offers 10 B, receives 45290 A
     // So p2id_from_1_to_2 should contain 45290 A (what note1 creator receives)
-    assert_eq!(p2id_from_1_to_2.amount(), 45290, "Note1 creator should receive 45290 A");
+    assert_eq!(
+        p2id_from_1_to_2.amount(),
+        45290,
+        "Note1 creator should receive 45290 A"
+    );
     assert_eq!(p2id_from_1_to_2.faucet_id(), faucet_a);
-    
+
     // Note2 is partially filled: offers 54360 A, receives 10 B
     // So p2id_from_2_to_1 should contain 10 B (what note2 creator receives)
-    assert_eq!(p2id_from_2_to_1.amount(), 10, "Note2 creator should receive 10 B");
+    assert_eq!(
+        p2id_from_2_to_1.amount(),
+        10,
+        "Note2 creator should receive 10 B"
+    );
     assert_eq!(p2id_from_2_to_1.faucet_id(), faucet_b);
 
     // Note2 should have leftover (it's the maker, partially filled)
@@ -91,9 +99,9 @@ fn test_try_match_swapp_notes_arithmetic() {
         .leftover_swapp_note
         .as_ref()
         .expect("Note2 (maker) should not be 100% filled");
-    
+
     let (left_off, left_req) = decompose_swapp_note(leftover).unwrap();
-    
+
     // Leftover calculation:
     // Note2 originally offered 54360 A and wanted 12 B
     // It gave away 45290 A (to fill note1 completely)
@@ -106,7 +114,11 @@ fn test_try_match_swapp_notes_arithmetic() {
     assert_eq!(left_req.faucet_id(), faucet_b);
 
     // Note arguments - these represent what each note receives
-    assert_eq!(swap.note1_args[3].as_int(), 45290, "Note1 arg: receives 45290 A");
+    assert_eq!(
+        swap.note1_args[3].as_int(),
+        45290,
+        "Note1 arg: receives 45290 A"
+    );
     assert_eq!(swap.note2_args[3].as_int(), 10, "Note2 arg: receives 10 B");
 }
 
