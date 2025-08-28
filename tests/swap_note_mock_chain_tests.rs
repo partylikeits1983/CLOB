@@ -298,6 +298,11 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
         .execute()
         .await?;
 
+    println!(
+        "cycles: {:?}",
+        executed_transaction.measurements().total_cycles()
+    );
+
     let final_matcher_account =
         mock_chain.add_pending_executed_transaction(&executed_transaction)?;
 
