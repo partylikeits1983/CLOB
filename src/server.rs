@@ -5,7 +5,7 @@ use axum::{
     Json, Router,
 };
 use dotenv::dotenv;
-use miden_client::account::AccountId;
+use miden_client::account::{AccountId, Address};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::Arc;
@@ -307,19 +307,38 @@ async fn get_depth_chart(
                 )
             })?;
 
-            // Convert bech32 to AccountId for comparison (same pattern as depth_chart.rs)
-            let (_, usdc_faucet) = AccountId::from_bech32(&usdc_faucet_id).map_err(|e| {
+            // Convert bech32 to AccountId for comparison (using new pattern)
+            let (_, usdc_address) = Address::from_bech32(&usdc_faucet_id).map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Invalid USDC faucet ID: {}", e),
                 )
             })?;
-            let (_, eth_faucet) = AccountId::from_bech32(&eth_faucet_id).map_err(|e| {
+            let usdc_faucet = match usdc_address {
+                Address::AccountId(addr) => addr.id(),
+                _ => {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "USDC faucet ID is not an account address".to_string(),
+                    ))
+                }
+            };
+
+            let (_, eth_address) = Address::from_bech32(&eth_faucet_id).map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Invalid ETH faucet ID: {}", e),
                 )
             })?;
+            let eth_faucet = match eth_address {
+                Address::AccountId(addr) => addr.id(),
+                _ => {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "ETH faucet ID is not an account address".to_string(),
+                    ))
+                }
+            };
 
             (usdc_faucet, eth_faucet)
         }

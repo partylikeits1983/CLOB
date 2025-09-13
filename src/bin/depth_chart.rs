@@ -1,6 +1,9 @@
 use chrono::Local;
 use clap::Parser;
-use miden_client::{account::AccountId, Felt};
+use miden_client::{
+    account::{AccountId, Address},
+    Felt,
+};
 use miden_clob::{database::Database, note_serialization::deserialize_note};
 use std::{
     env,
@@ -33,8 +36,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eth_faucet_id = env::var("ETH_FAUCET_ID").expect("ETH_FAUCET_ID must be set in .env file");
 
     // Parse faucet IDs
-    let (_, usdc_faucet) = AccountId::from_bech32(&usdc_faucet_id)?;
-    let (_, eth_faucet) = AccountId::from_bech32(&eth_faucet_id)?;
+    let (_, usdc_address) = Address::from_bech32(&usdc_faucet_id)?;
+    let usdc_faucet = match usdc_address {
+        Address::AccountId(addr) => addr.id(),
+        _ => return Err("USDC faucet ID is not an account address".into()),
+    };
+
+    let (_, eth_address) = Address::from_bech32(&eth_faucet_id)?;
+    let eth_faucet = match eth_address {
+        Address::AccountId(addr) => addr.id(),
+        _ => return Err("ETH faucet ID is not an account address".into()),
+    };
 
     // Connect to database
     let database_url = "sqlite:./clob.sqlite3";

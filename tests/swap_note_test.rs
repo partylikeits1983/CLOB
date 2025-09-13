@@ -8,7 +8,7 @@ use miden_client::{
     note::NoteType,
     rpc::{Endpoint, TonicRpcClient},
     transaction::{OutputNote, TransactionRequestBuilder},
-    ClientError, Felt,
+    ClientError, Felt, Word,
 };
 use miden_objects::note::NoteDetails;
 
@@ -37,7 +37,6 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
     let mut client = ClientBuilder::new()
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
         .build()
         .await?;
 
@@ -80,7 +79,7 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
         alice_account.id(),
         asset_a.into(),
         asset_b.into(),
-        swap_serial_num,
+        swap_serial_num.into(),
         swap_count,
     )
     .unwrap();
@@ -143,7 +142,7 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
 
     // P2ID note for Bob’s partial fill going to Alice
     let p2id_note_asset_1 = FungibleAsset::new(faucet_b.id(), fill_amount_bob).unwrap();
-    let p2id_serial_num_1 = get_p2id_serial_num(swap_serial_num, swap_count_1);
+    let p2id_serial_num_1 = get_p2id_serial_num(swap_serial_num.into(), swap_count_1);
 
     let p2id_note = create_p2id_note(
         bob_account.id(),
@@ -166,7 +165,7 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
     ];
 
     let consume_custom_req = TransactionRequestBuilder::new()
-        .authenticated_input_notes([(swapp_note.id(), Some(consume_amount_note_args))])
+        .authenticated_input_notes([(swapp_note.id(), Some(Word::from(consume_amount_note_args)))])
         .expected_future_notes(vec![
             (
                 NoteDetails::from(p2id_note.clone()),
@@ -242,12 +241,12 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
     let swap_note_1_serial_num = client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
-        alice_account.id(),         // creator of the order
-        alice_account.id(),         // last account to "fill the order"
-        swap_note_1_asset_a.into(), // offered asset (selling)
-        swap_note_1_asset_b.into(), // requested asset (buying)
-        swap_note_1_serial_num,     // serial number of the order
-        0,                          // fill number (0 means hasn't been filled)
+        alice_account.id(),            // creator of the order
+        alice_account.id(),            // last account to "fill the order"
+        swap_note_1_asset_a.into(),    // offered asset (selling)
+        swap_note_1_asset_b.into(),    // requested asset (buying)
+        swap_note_1_serial_num.into(), // serial number of the order
+        0,                             // fill number (0 means hasn't been filled)
     )
     .unwrap();
 
@@ -259,7 +258,7 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
         bob_account.id(),
         swap_note_2_asset_b.into(),
         swap_note_2_asset_a.into(),
-        swap_note_2_serial_num,
+        swap_note_2_serial_num.into(),
         0,
     )
     .unwrap();
@@ -287,7 +286,7 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
     // -------------------------------------------------------------------------
     // STEP 3: Computing output notes if SWAP notes are matched
     // -------------------------------------------------------------------------
-    let p2id_serial_num_1 = get_p2id_serial_num(swap_note_1.serial_num(), 1);
+    let p2id_serial_num_1 = get_p2id_serial_num(swap_note_1.serial_num().into(), 1);
     let p2id_1 = create_p2id_note(
         matcher_account.id(),             // sender
         alice_account.id(),               // account id to receive the asset
@@ -298,7 +297,7 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
     )
     .unwrap();
 
-    let p2id_serial_num_2 = get_p2id_serial_num(swap_note_2.serial_num(), 1);
+    let p2id_serial_num_2 = get_p2id_serial_num(swap_note_2.serial_num().into(), 1);
     let p2id_2 = create_p2id_note(
         matcher_account.id(),
         bob_account.id(),
@@ -364,8 +363,8 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
     // Combined Transaction
     let consume_custom_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_note_1_note_args)), // note that isn't filled compltely
-            (swap_note_2.id(), Some(swap_note_2_note_args)), // note that is filled completely
+            (swap_note_1.id(), Some(Word::from(swap_note_1_note_args))), // note that isn't filled compltely
+            (swap_note_2.id(), Some(Word::from(swap_note_2_note_args))), // note that is filled completely
         ])
         .expected_future_notes(vec![
             (NoteDetails::from(p2id_1.clone()), p2id_1.metadata().tag()),
@@ -414,7 +413,6 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
     let mut client = ClientBuilder::new()
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
         .build()
         .await?;
 
@@ -510,8 +508,8 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args)), // maker's SWAPP note
-            (swap_note_2.id(), Some(swap_data.note2_args)), // taker's SWAPP note
+            (swap_note_1.id(), Some(Word::from(swap_data.note1_args))), // maker's SWAPP note
+            (swap_note_2.id(), Some(Word::from(swap_data.note2_args))), // taker's SWAPP note
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
@@ -554,7 +552,6 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     let mut client = ClientBuilder::new()
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
         .build()
         .await?;
 
@@ -653,8 +650,14 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_data.swap_note_1.id(), Some(swap_data.note1_args)), // maker's SWAPP note
-            (swap_data.swap_note_2.id(), Some(swap_data.note2_args)), // taker's SWAPP note
+            (
+                swap_data.swap_note_1.id(),
+                Some(Word::from(swap_data.note1_args)),
+            ), // maker's SWAPP note
+            (
+                swap_data.swap_note_2.id(),
+                Some(Word::from(swap_data.note2_args)),
+            ), // taker's SWAPP note
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
@@ -702,7 +705,6 @@ async fn swap_note_reclaim_public_test() -> Result<(), ClientError> {
     let mut client = ClientBuilder::new()
         .rpc(rpc_api)
         .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
         .build()
         .await?;
 
@@ -744,7 +746,7 @@ async fn swap_note_reclaim_public_test() -> Result<(), ClientError> {
         alice_account.id(),
         asset_a.into(),
         asset_b.into(),
-        swap_serial_num,
+        swap_serial_num.into(),
         swap_count,
     )
     .unwrap();

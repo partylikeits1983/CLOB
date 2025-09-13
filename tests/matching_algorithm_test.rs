@@ -7,7 +7,7 @@ use miden_client::{
     note::NoteType,
     rpc::Endpoint,
     transaction::{OutputNote, TransactionRequestBuilder},
-    ClientError, Felt,
+    ClientError, Felt, Word,
 };
 use miden_objects::note::NoteDetails;
 use tokio::time::sleep;
@@ -54,12 +54,12 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
     let swap_note_1_serial_num = client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
-        alice_account.id(),         // creator of the order
-        alice_account.id(),         // last account to "fill the order"
-        swap_note_1_asset_a.into(), // offered asset (selling)
-        swap_note_1_asset_b.into(), // requested asset (buying)
-        swap_note_1_serial_num,     // serial number of the order
-        0,                          // fill number (0 means hasn't been filled)
+        alice_account.id(),            // creator of the order
+        alice_account.id(),            // last account to "fill the order"
+        swap_note_1_asset_a.into(),    // offered asset (selling)
+        swap_note_1_asset_b.into(),    // requested asset (buying)
+        swap_note_1_serial_num.into(), // serial number of the order
+        0,                             // fill number (0 means hasn't been filled)
     )
     .unwrap();
 
@@ -71,7 +71,7 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
         bob_account.id(),
         swap_note_2_asset_b.into(),
         swap_note_2_asset_a.into(),
-        swap_note_2_serial_num,
+        swap_note_2_serial_num.into(),
         0,
     )
     .unwrap();
@@ -99,7 +99,7 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
     // -------------------------------------------------------------------------
     // STEP 3: Computing output notes if SWAP notes are matched
     // -------------------------------------------------------------------------
-    let p2id_serial_num_1 = get_p2id_serial_num(swap_note_1.serial_num(), 1);
+    let p2id_serial_num_1 = get_p2id_serial_num(swap_note_1.serial_num().into(), 1);
     let p2id_1 = create_p2id_note(
         matcher_account.id(),             // sender
         alice_account.id(),               // account id to receive the asset
@@ -110,7 +110,7 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
     )
     .unwrap();
 
-    let p2id_serial_num_2 = get_p2id_serial_num(swap_note_2.serial_num(), 1);
+    let p2id_serial_num_2 = get_p2id_serial_num(swap_note_2.serial_num().into(), 1);
     let p2id_2 = create_p2id_note(
         matcher_account.id(),
         bob_account.id(),
@@ -216,8 +216,8 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args)),
-            (swap_note_2.id(), Some(swap_data.note2_args)),
+            (swap_note_1.id(), Some(Word::from(swap_data.note1_args))),
+            (swap_note_2.id(), Some(Word::from(swap_data.note2_args))),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
@@ -287,12 +287,12 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 1455600).unwrap();
     let swap_note_1_serial_num = client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
-        alice_account.id(),         // creator of the order
-        alice_account.id(),         // last account to "fill the order"
-        swap_note_1_asset_a.into(), // offered asset (selling)
-        swap_note_1_asset_b.into(), // requested asset (buying)
-        swap_note_1_serial_num,     // serial number of the order
-        0,                          // fill number (0 means hasn't been filled)
+        alice_account.id(),            // creator of the order
+        alice_account.id(),            // last account to "fill the order"
+        swap_note_1_asset_a.into(),    // offered asset (selling)
+        swap_note_1_asset_b.into(),    // requested asset (buying)
+        swap_note_1_serial_num.into(), // serial number of the order
+        0,                             // fill number (0 means hasn't been filled)
     )
     .unwrap();
 
@@ -304,7 +304,7 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
         bob_account.id(),
         swap_note_2_asset_b.into(),
         swap_note_2_asset_a.into(),
-        swap_note_2_serial_num,
+        swap_note_2_serial_num.into(),
         1,
     )
     .unwrap();
@@ -371,8 +371,8 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args)),
-            (swap_note_2.id(), Some(swap_data.note2_args)),
+            (swap_note_1.id(), Some(swap_data.note1_args.into())),
+            (swap_note_2.id(), Some(swap_data.note2_args.into())),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
@@ -441,12 +441,12 @@ async fn fill_counter_party_swap_notes_complete_fill_algorithm() -> Result<(), C
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
     let swap_note_1_serial_num = client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
-        alice_account.id(),         // creator of the order
-        alice_account.id(),         // last account to "fill the order"
-        swap_note_1_asset_a.into(), // offered asset (selling)
-        swap_note_1_asset_b.into(), // requested asset (buying)
-        swap_note_1_serial_num,     // serial number of the order
-        0,                          // fill number (0 means hasn't been filled)
+        alice_account.id(),            // creator of the order
+        alice_account.id(),            // last account to "fill the order"
+        swap_note_1_asset_a.into(),    // offered asset (selling)
+        swap_note_1_asset_b.into(),    // requested asset (buying)
+        swap_note_1_serial_num.into(), // serial number of the order
+        0,                             // fill number (0 means hasn't been filled)
     )
     .unwrap();
 
@@ -458,7 +458,7 @@ async fn fill_counter_party_swap_notes_complete_fill_algorithm() -> Result<(), C
         bob_account.id(),
         swap_note_2_asset_b.into(),
         swap_note_2_asset_a.into(),
-        swap_note_2_serial_num,
+        swap_note_2_serial_num.into(),
         0,
     )
     .unwrap();
@@ -526,8 +526,8 @@ async fn fill_counter_party_swap_notes_complete_fill_algorithm() -> Result<(), C
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args)),
-            (swap_note_2.id(), Some(swap_data.note2_args)),
+            (swap_note_1.id(), Some(swap_data.note1_args.into())),
+            (swap_note_2.id(), Some(swap_data.note2_args.into())),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
@@ -596,12 +596,12 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
     let swap_note_1_serial_num = client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
-        alice_account.id(),         // creator of the order
-        alice_account.id(),         // last account to "fill the order"
-        swap_note_1_asset_a.into(), // offered asset (selling)
-        swap_note_1_asset_b.into(), // requested asset (buying)
-        swap_note_1_serial_num,     // serial number of the order
-        0,                          // fill number (0 means hasn't been filled)
+        alice_account.id(),            // creator of the order
+        alice_account.id(),            // last account to "fill the order"
+        swap_note_1_asset_a.into(),    // offered asset (selling)
+        swap_note_1_asset_b.into(),    // requested asset (buying)
+        swap_note_1_serial_num.into(), // serial number of the order
+        0,                             // fill number (0 means hasn't been filled)
     )
     .unwrap();
 
@@ -613,7 +613,7 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
         bob_account.id(),
         swap_note_2_asset_b.into(),
         swap_note_2_asset_a.into(),
-        swap_note_2_serial_num,
+        swap_note_2_serial_num.into(),
         0,
     )
     .unwrap();
@@ -626,7 +626,7 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
         bob_account.id(),
         swap_note_3_asset_b.into(),
         swap_note_3_asset_a.into(),
-        swap_note_3_serial_num,
+        swap_note_3_serial_num.into(),
         0,
     )
     .unwrap();
@@ -700,8 +700,8 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
 
     let consume_req = TransactionRequestBuilder::new()
         .unauthenticated_input_notes([
-            (swap_note_1, Some(swap_data.note1_args)),
-            (swap_note_2, Some(swap_data.note2_args)),
+            (swap_note_1, Some(Word::from(swap_data.note1_args))),
+            (swap_note_2, Some(Word::from(swap_data.note2_args))),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
@@ -765,8 +765,14 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
 
     let consume_req = TransactionRequestBuilder::new()
         .unauthenticated_input_notes([
-            (swap_data_1.swap_note_1, Some(swap_data_1.note1_args)),
-            (swap_data_1.swap_note_2, Some(swap_data_1.note2_args)),
+            (
+                swap_data_1.swap_note_1,
+                Some(Word::from(swap_data_1.note1_args)),
+            ),
+            (
+                swap_data_1.swap_note_2,
+                Some(Word::from(swap_data_1.note2_args)),
+            ),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
@@ -835,12 +841,12 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
     let swap_note_1_serial_num = client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
-        alice_account.id(),         // creator of the order
-        alice_account.id(),         // last account to "fill the order"
-        swap_note_1_asset_a.into(), // offered asset (selling)
-        swap_note_1_asset_b.into(), // requested asset (buying)
-        swap_note_1_serial_num,     // serial number of the order
-        0,                          // fill number (0 means hasn't been filled)
+        alice_account.id(),            // creator of the order
+        alice_account.id(),            // last account to "fill the order"
+        swap_note_1_asset_a.into(),    // offered asset (selling)
+        swap_note_1_asset_b.into(),    // requested asset (buying)
+        swap_note_1_serial_num.into(), // serial number of the order
+        0,                             // fill number (0 means hasn't been filled)
     )
     .unwrap();
 
@@ -852,7 +858,7 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
         bob_account.id(),
         swap_note_2_asset_b.into(),
         swap_note_2_asset_a.into(),
-        swap_note_2_serial_num,
+        swap_note_2_serial_num.into(),
         0,
     )
     .unwrap();
@@ -861,12 +867,12 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
     let swap_note_3_asset_b = FungibleAsset::new(faucet_b.id(), 80).unwrap();
     let swap_note_3_serial_num = client.rng().draw_word();
     let swap_note_3 = create_partial_swap_note(
-        alice_account.id(),         // creator of the order
-        alice_account.id(),         // last account to "fill the order"
-        swap_note_3_asset_a.into(), // offered asset (selling)
-        swap_note_3_asset_b.into(), // requested asset (buying)
-        swap_note_3_serial_num,     // serial number of the order
-        0,                          // fill number (0 means hasn't been filled)
+        alice_account.id(),            // creator of the order
+        alice_account.id(),            // last account to "fill the order"
+        swap_note_3_asset_a.into(),    // offered asset (selling)
+        swap_note_3_asset_b.into(),    // requested asset (buying)
+        swap_note_3_serial_num.into(), // serial number of the order
+        0,                             // fill number (0 means hasn't been filled)
     )
     .unwrap();
 
@@ -878,7 +884,7 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
         bob_account.id(),
         swap_note_4_asset_b.into(),
         swap_note_4_asset_a.into(),
-        swap_note_4_serial_num,
+        swap_note_4_serial_num.into(),
         0,
     )
     .unwrap();
@@ -974,10 +980,22 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_data_1.swap_note_1.id(), Some(swap_data_1.note1_args)),
-            (swap_data_1.swap_note_2.id(), Some(swap_data_1.note2_args)),
-            (swap_data_2.swap_note_1.id(), Some(swap_data_2.note1_args)),
-            (swap_data_2.swap_note_2.id(), Some(swap_data_2.note2_args)),
+            (
+                swap_data_1.swap_note_1.id(),
+                Some(Word::from(swap_data_1.note1_args)),
+            ),
+            (
+                swap_data_1.swap_note_2.id(),
+                Some(Word::from(swap_data_1.note2_args)),
+            ),
+            (
+                swap_data_2.swap_note_1.id(),
+                Some(Word::from(swap_data_2.note1_args)),
+            ),
+            (
+                swap_data_2.swap_note_2.id(),
+                Some(Word::from(swap_data_2.note2_args)),
+            ),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)

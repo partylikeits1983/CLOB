@@ -219,8 +219,7 @@ end
 #!
 proc.increment_swap_count
     mem_load.SWAPP_COUNT_INPUT
-    push.1
-    add
+    add.1
     mem_store.SWAPP_COUNT_INPUT
 end
 
@@ -235,8 +234,7 @@ end
 # output: [get_serial_number + 1]
 proc.get_new_swap_serial_num
     exec.note::get_serial_number
-    push.1
-    add
+    add.1
 end
 
 #! Returns if the currently consuming account is the creator of the note
@@ -357,8 +355,7 @@ proc.execute_SWAPp
     # by default we read the balance of token B in the consuming account
 
     # get token_b_AMT_IN, if supplied via note args
-    mem_load.AMT_TOKENS_B_IN push.0
-    eq
+    mem_load.AMT_TOKENS_B_IN eq.0
     # => [is_AMT_TOKENS_B_IN_USER_BAL]
 
     # if amount to swap is user wallet balance
@@ -370,7 +367,7 @@ proc.execute_SWAPp
         # => [token_b_AMT_IN]
 
         # token_b_AMT_IN must not be 0
-        dup push.0 neq assert.err=ERR_INVALID_SWAP_AMOUNT_ZERO
+        dup neq.0 assert.err=ERR_INVALID_SWAP_AMOUNT_ZERO
         # => [token_b_AMT_IN]
 
         mem_store.AMT_TOKENS_B_IN

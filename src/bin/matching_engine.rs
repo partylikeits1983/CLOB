@@ -422,8 +422,16 @@ async fn execute_batch_blockchain_match_simplified(
 
     // Build the transaction request (exactly like the test)
     use miden_client::transaction::TransactionRequestBuilder;
+    use miden_objects::Word;
+
+    // Convert [Felt; 4] to Word for input notes
+    let input_notes_converted: Vec<(Note, Option<Word>)> = input_notes
+        .into_iter()
+        .map(|(note, args)| (note, args.map(|a| Word::from(a))))
+        .collect();
+
     let consume_req = TransactionRequestBuilder::new()
-        .unauthenticated_input_notes(input_notes)
+        .unauthenticated_input_notes(input_notes_converted)
         .expected_future_notes(expected_outputs.clone())
         .expected_output_recipients(expected_output_recipients)
         .build()
@@ -629,10 +637,18 @@ async fn execute_blockchain_match_simplified(
 
     // Build the transaction request exactly like the test
     use miden_client::transaction::TransactionRequestBuilder;
+    use miden_objects::Word;
+
     let consume_req = TransactionRequestBuilder::new()
         .unauthenticated_input_notes([
-            (swap_data.swap_note_1.clone(), Some(swap_data.note1_args)),
-            (swap_data.swap_note_2.clone(), Some(swap_data.note2_args)),
+            (
+                swap_data.swap_note_1.clone(),
+                Some(Word::from(swap_data.note1_args)),
+            ),
+            (
+                swap_data.swap_note_2.clone(),
+                Some(Word::from(swap_data.note2_args)),
+            ),
         ])
         .expected_future_notes(expected_outputs.clone())
         .expected_output_recipients(expected_output_recipients)

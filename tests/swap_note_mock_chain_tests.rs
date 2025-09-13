@@ -1,20 +1,19 @@
 use miden_client::{
-    account::AccountId,
     asset::{Asset, FungibleAsset},
     note::NoteType,
     testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1,
     Word,
 };
 use miden_clob::{create_partial_swap_note, try_match_swapp_notes};
-use miden_testing::{Auth, MockChain};
+use miden_testing::{Auth, MockChain, TransactionContextBuilder};
 
 use miden_objects::{
     testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2, transaction::OutputNote,
 };
 
 #[test]
-fn p2id_script_multiple_assets() {
-    let mut mock_chain = MockChain::new();
+fn p2id_script_multiple_assets() -> anyhow::Result<()> {
+    let mut builder = MockChain::builder();
 
     // Create assets
     let fungible_asset_1: Asset = FungibleAsset::mock(123);
@@ -24,28 +23,27 @@ fn p2id_script_multiple_assets() {
             .into();
 
     // Create sender and target account
-    let sender_account = mock_chain.add_pending_new_wallet(Auth::BasicAuth);
-    let target_account = mock_chain.add_pending_existing_wallet(Auth::BasicAuth, vec![]);
+    let sender_account = builder.add_existing_wallet(Auth::BasicAuth)?;
+    let target_account = builder.add_existing_wallet(Auth::BasicAuth)?;
 
     // Create the note
-    let note = mock_chain
-        .add_pending_p2id_note(
-            sender_account.id(),
-            target_account.id(),
-            &[fungible_asset_1, fungible_asset_2],
-            NoteType::Public,
-        )
-        .unwrap();
+    let note = builder.add_p2id_note(
+        sender_account.id(),
+        target_account.id(),
+        &[fungible_asset_1, fungible_asset_2],
+        NoteType::Public,
+    )?;
 
-    mock_chain.prove_next_block();
+    let mut mock_chain = builder.build()?;
+    mock_chain.prove_next_block()?;
 
     println!("p2id script hash: {:?}", note.script().root());
+    Ok(())
 }
 
 #[tokio::test]
 async fn swapp_match_mock_chain() -> anyhow::Result<()> {
-    let mut mock_chain = MockChain::new();
-    mock_chain.prove_until_block(1u32)?;
+    let mut builder = MockChain::builder();
 
     // Initialize assets & accounts
     let asset_a: Asset =
@@ -57,11 +55,10 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
             .unwrap()
             .into();
 
-    // Create sender and target and malicious account
-    let alice_account = mock_chain.add_pending_existing_wallet(Auth::BasicAuth, vec![]);
-    let bob_account = mock_chain.add_pending_existing_wallet(Auth::BasicAuth, vec![]);
-    let matcher_account =
-        mock_chain.add_pending_existing_wallet(Auth::BasicAuth, vec![asset_a, asset_b]);
+    // Create sender and target and matcher account
+    let alice_account = builder.add_existing_wallet(Auth::BasicAuth)?;
+    let bob_account = builder.add_existing_wallet(Auth::BasicAuth)?;
+    let matcher_account = builder.add_existing_wallet(Auth::BasicAuth)?;
 
     // SWAPP NOTE 1
     let swap_note_1_asset_a: Asset =
@@ -78,7 +75,7 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
         alice_account.id(),         // last account to "fill the order"
         swap_note_1_asset_a.into(), // offered asset (selling)
         swap_note_1_asset_b.into(), // requested asset (buying)
-        Word::default(),            // serial number of the order
+        *Word::default(),           // serial number of the order
         0,                          // fill number (0 means hasn't been filled)
     )
     .unwrap();
@@ -98,7 +95,7 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
         bob_account.id(),           // last account to "fill the order"
         swap_note_2_asset_b.into(), // offered asset (selling)
         swap_note_2_asset_a.into(), // requested asset (buying)
-        Word::default(),            // serial number of the order
+        *Word::default(),           // serial number of the order
         0,                          // fill number (0 means hasn't been filled)
     )
     .unwrap();
@@ -106,8 +103,10 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
     let swapp_note1_output = OutputNote::Full(swap_note_1.clone());
     let swapp_note2_output = OutputNote::Full(swap_note_2.clone());
 
-    mock_chain.add_pending_note(swapp_note1_output);
-    mock_chain.add_pending_note(swapp_note2_output);
+    builder.add_note(swapp_note1_output);
+    builder.add_note(swapp_note2_output);
+
+    let mut mock_chain = builder.build()?;
     mock_chain.prove_next_block()?;
 
     let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher_account.id())
@@ -124,17 +123,21 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
     if let Some(ref note) = swap_data.leftover_swapp_note {
         outputs.push(OutputNote::Full(note.clone()));
     }
+
     // CONSTRUCT AND EXECUTE TX (Success - Target Account)
-    let executed_transaction_1 = mock_chain
-        .build_tx_context(
-            matcher_account.id(),
-            &[swap_note_1.id(), swap_note_2.id()],
-            &[],
-        )?
+    let tx_inputs = mock_chain.get_transaction_inputs(
+        matcher_account.clone(),
+        None,
+        &[swap_note_1.id(), swap_note_2.id()],
+        &[],
+    )?;
+
+    let tx_context = TransactionContextBuilder::new(matcher_account.clone())
+        .tx_inputs(tx_inputs)
         .extend_expected_output_notes(outputs)
-        .build()?
-        .execute()
-        .await?;
+        .build()?;
+
+    let executed_transaction_1 = tx_context.execute().await?;
 
     let target_account = mock_chain.add_pending_executed_transaction(&executed_transaction_1)?;
 
@@ -142,10 +145,10 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
         "asset a: {:?} asset b: {:?}",
         target_account
             .vault()
-            .get_balance(AccountId::try_from(asset_a.unwrap_fungible().faucet_id())?),
+            .get_balance(asset_a.unwrap_fungible().faucet_id()),
         target_account
             .vault()
-            .get_balance(AccountId::try_from(asset_b.unwrap_fungible().faucet_id())?)
+            .get_balance(asset_b.unwrap_fungible().faucet_id())
     );
 
     Ok(())
@@ -157,8 +160,7 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
     // Note 1: offers 10, wants 45290
     // Note 2: offers 54360, wants 12
 
-    let mut mock_chain = MockChain::new();
-    mock_chain.prove_until_block(1u32)?;
+    let mut builder = MockChain::builder();
 
     // Create faucets for the two assets
     let faucet_a = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap();
@@ -169,10 +171,9 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
     let asset_b_matcher: Asset = FungibleAsset::new(faucet_b, 100000000000).unwrap().into();
 
     // Create accounts
-    let alice_account = mock_chain.add_pending_existing_wallet(Auth::BasicAuth, vec![]);
-    let bob_account = mock_chain.add_pending_existing_wallet(Auth::BasicAuth, vec![]);
-    let matcher_account = mock_chain
-        .add_pending_existing_wallet(Auth::BasicAuth, vec![asset_a_matcher, asset_b_matcher]);
+    let alice_account = builder.add_existing_wallet(Auth::BasicAuth)?;
+    let bob_account = builder.add_existing_wallet(Auth::BasicAuth)?;
+    let matcher_account = builder.add_existing_wallet(Auth::BasicAuth)?;
 
     // SWAPP NOTE 1: Alice offers 10 B, wants 45290 A (high price per A)
     let swap_note_1 = create_partial_swap_note(
@@ -180,7 +181,7 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
         alice_account.id(),
         FungibleAsset::new(faucet_b, 10).unwrap().into(), // offered: 10 B
         FungibleAsset::new(faucet_a, 45290).unwrap().into(), // wanted: 45290 A
-        Word::default(),
+        *Word::default(),
         0,
     )
     .unwrap();
@@ -191,7 +192,7 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
         bob_account.id(),
         FungibleAsset::new(faucet_a, 54360).unwrap().into(), // offered: 54360 A
         FungibleAsset::new(faucet_b, 12).unwrap().into(),    // wanted: 12 B
-        Word::default(),
+        *Word::default(),
         0,
     )
     .unwrap();
@@ -200,8 +201,10 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
     let swapp_note1_output = OutputNote::Full(swap_note_1.clone());
     let swapp_note2_output = OutputNote::Full(swap_note_2.clone());
 
-    mock_chain.add_pending_note(swapp_note1_output);
-    mock_chain.add_pending_note(swapp_note2_output);
+    builder.add_note(swapp_note1_output);
+    builder.add_note(swapp_note2_output);
+
+    let mut mock_chain = builder.build()?;
     mock_chain.prove_next_block()?;
 
     println!("\n=== Testing exact error values ===");
@@ -280,23 +283,26 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
     println!("\n=== Executing transaction ===");
 
     // Execute the matching transaction
-    let executed_transaction = mock_chain
-        .build_tx_context(
-            matcher_account.id(),
-            &[swap_note_1.id(), swap_note_2.id()],
-            &[],
-        )?
+    let tx_inputs = mock_chain.get_transaction_inputs(
+        matcher_account.clone(),
+        None,
+        &[swap_note_1.id(), swap_note_2.id()],
+        &[],
+    )?;
+
+    let tx_context = TransactionContextBuilder::new(matcher_account.clone())
+        .tx_inputs(tx_inputs)
         .extend_note_args(
             [
-                (swap_note_1.id(), swap_data.note1_args),
-                (swap_note_2.id(), swap_data.note2_args),
+                (swap_note_1.id(), Word::from(swap_data.note1_args)),
+                (swap_note_2.id(), Word::from(swap_data.note2_args)),
             ]
             .into(),
         )
         .extend_expected_output_notes(outputs)
-        .build()?
-        .execute()
-        .await?;
+        .build()?;
+
+    let executed_transaction = tx_context.execute().await?;
 
     println!(
         "cycles: {:?}",

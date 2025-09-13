@@ -8,7 +8,7 @@ use tokio::time::{sleep, Duration};
 
 use miden_client::{
     account::{
-        component::{BasicFungibleFaucet, BasicWallet, RpoFalcon512},
+        component::{BasicFungibleFaucet, BasicWallet},
         Account, AccountBuilder, AccountId, AccountStorageMode, AccountType, StorageSlot,
     },
     asset::{Asset, FungibleAsset, TokenSymbol},
@@ -23,9 +23,9 @@ use miden_client::{
     rpc::{Endpoint, TonicRpcClient},
     store::InputNoteRecord,
     transaction::{OutputNote, TransactionKernel, TransactionRequestBuilder},
-    Client, ClientError, Felt, Word,
+    Client, ClientError, Felt, ScriptBuilder, Word,
 };
-use miden_lib::account::auth;
+use miden_lib::account::auth::AuthRpoFalcon512;
 
 use miden_objects::{account::AccountComponent, Hasher, NoteError};
 use serde::de::value::Error;
@@ -45,31 +45,29 @@ pub fn create_library(
     Ok(library)
 }
 
+// Helper to create a basic account
 pub async fn create_basic_account(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<rand::prelude::StdRng>>,
     keystore: FilesystemKeyStore<StdRng>,
-) -> Result<(miden_client::account::Account, SecretKey), ClientError> {
-    let mut init_seed = [0_u8; 32];
+) -> Result<Account, ClientError> {
+    let mut init_seed = [0u8; 32];
     client.rng().fill_bytes(&mut init_seed);
-
     let key_pair = SecretKey::with_rng(client.rng());
     let builder = AccountBuilder::new(init_seed)
         .account_type(AccountType::RegularAccountUpdatableCode)
-        .storage_mode(AccountStorageMode::Private)
-        .with_auth_component(RpoFalcon512::new(key_pair.public_key().clone()))
+        .storage_mode(AccountStorageMode::Public)
+        .with_auth_component(AuthRpoFalcon512::new(key_pair.public_key()))
         .with_component(BasicWallet);
     let (account, seed) = builder.build().unwrap();
     client.add_account(&account, Some(seed), false).await?;
     keystore
-        .add_key(&AuthSecretKey::RpoFalcon512(key_pair.clone()))
+        .add_key(&AuthSecretKey::RpoFalcon512(key_pair))
         .unwrap();
-
-    Ok((account, key_pair))
+    Ok(account)
 }
 
-// TODO: Currently faucets are setup with `NoAuth` auth component
 pub async fn create_basic_faucet(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<rand::prelude::StdRng>>,
     keystore: FilesystemKeyStore<StdRng>,
 ) -> Result<miden_client::account::Account, ClientError> {
     let mut init_seed = [0u8; 32];
@@ -77,11 +75,11 @@ pub async fn create_basic_faucet(
     let key_pair = SecretKey::with_rng(client.rng());
     let symbol = TokenSymbol::new("MID").unwrap();
     let decimals = 8;
-    let max_supply = Felt::new(1_000_000_000_000);
+    let max_supply = Felt::new(1_000_000);
     let builder = AccountBuilder::new(init_seed)
         .account_type(AccountType::FungibleFaucet)
         .storage_mode(AccountStorageMode::Public)
-        .with_auth_component(auth::NoAuth)
+        .with_auth_component(AuthRpoFalcon512::new(key_pair.public_key()))
         .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap());
     let (account, seed) = builder.build().unwrap();
     client.add_account(&account, Some(seed), false).await?;
@@ -96,7 +94,7 @@ pub async fn create_basic_faucet(
 /// - `balances[a][f]`: how many tokens faucet `f` should mint for account `a`.
 /// - Returns: a tuple of `(Vec<Account>, Vec<Account>)` i.e. (accounts, faucets).
 pub async fn setup_accounts_and_faucets(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<rand::prelude::StdRng>>,
     keystore: FilesystemKeyStore<StdRng>,
     num_accounts: usize,
     num_faucets: usize,
@@ -107,7 +105,7 @@ pub async fn setup_accounts_and_faucets(
     // ---------------------------------------------------------------------
     let mut accounts = Vec::with_capacity(num_accounts);
     for i in 0..num_accounts {
-        let (account, _) = create_basic_account(client, keystore.clone()).await?;
+        let account = create_basic_account(client, keystore.clone()).await?;
         println!("Created Account #{i} ⇒ ID: {:?}", account.id().to_hex());
         accounts.push(account);
     }
@@ -189,7 +187,7 @@ pub async fn setup_accounts_and_faucets(
 }
 
 pub async fn wait_for_notes(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<rand::prelude::StdRng>>,
     account_id: &miden_client::account::Account,
     expected: usize,
 ) -> Result<(), ClientError> {
@@ -210,7 +208,7 @@ pub async fn wait_for_notes(
 }
 
 pub async fn get_swapp_note(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<rand::prelude::StdRng>>,
     tag: NoteTag,
     swapp_note_id: NoteId,
 ) -> Result<(), ClientError> {
@@ -251,8 +249,11 @@ pub fn create_partial_swap_note(
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
 
-    let assembler = TransactionKernel::assembler().with_debug_mode(true);
-    let note_script = NoteScript::compile(note_code, assembler).unwrap();
+    let _assembler = TransactionKernel::assembler().with_debug_mode(true);
+
+    let note_script: NoteScript = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
     let note_type = NoteType::Public;
 
     let requested_asset_word: Word = requested_asset.into();
@@ -290,7 +291,7 @@ pub fn create_partial_swap_note(
     )?;
 
     let assets = NoteAssets::new(vec![offered_asset])?;
-    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
+    let recipient = NoteRecipient::new(swap_serial_num.into(), note_script.clone(), inputs.clone());
     let note = Note::new(assets.clone(), metadata, recipient.clone());
 
     Ok(note)
@@ -313,8 +314,9 @@ pub fn create_partial_swap_note_cancellable(
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
 
-    let assembler = TransactionKernel::assembler().with_debug_mode(true);
-    let note_script = NoteScript::compile(note_code, assembler).unwrap();
+    let note_script: NoteScript = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
     let note_type = NoteType::Public;
 
     let requested_asset_word: Word = requested_asset.into();
@@ -356,7 +358,7 @@ pub fn create_partial_swap_note_cancellable(
     )?;
 
     let assets = NoteAssets::new(vec![offered_asset])?;
-    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
+    let recipient = NoteRecipient::new(swap_serial_num.into(), note_script.clone(), inputs.clone());
     let note = Note::new(assets.clone(), metadata, recipient.clone());
 
     println!(
@@ -374,7 +376,7 @@ pub fn create_partial_swap_note_cancellable(
 }
 
 pub async fn create_order(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<rand::prelude::StdRng>>,
     trader: AccountId,
     buy_asset: Asset,
     sell_asset: Asset,
@@ -387,7 +389,7 @@ pub async fn create_order(
         trader,
         sell_asset.into(),
         buy_asset.into(),
-        swap_serial_num,
+        swap_serial_num.into(),
         swap_count,
     )
     .unwrap();
@@ -410,7 +412,7 @@ pub async fn create_order(
 }
 
 pub async fn create_order_simple(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<rand::prelude::StdRng>>,
     trader: AccountId,
     offered_asset: Asset,
     requested_asset: Asset,
@@ -423,7 +425,7 @@ pub async fn create_order_simple(
         trader,
         offered_asset.into(),
         requested_asset.into(),
-        swap_serial_num,
+        swap_serial_num.into(),
         swap_count,
     )
     .unwrap();
@@ -458,7 +460,7 @@ pub fn create_order_simple_testing(
         trader,
         offered_asset.into(),
         requested_asset.into(),
-        swap_serial_num,
+        swap_serial_num.into(),
         swap_count,
     )
     .unwrap();
@@ -482,9 +484,9 @@ pub fn create_p2id_note(
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
 
-    let assembler = TransactionKernel::assembler().with_debug_mode(true);
-
-    let note_script = NoteScript::compile(note_code, assembler).unwrap();
+    let note_script: NoteScript = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
 
     let inputs = NoteInputs::new(vec![target.suffix(), target.prefix().into()])?;
     let tag = NoteTag::from_account_id(target);
@@ -492,7 +494,7 @@ pub fn create_p2id_note(
     let metadata = NoteMetadata::new(sender, note_type, tag, NoteExecutionHint::always(), aux)?;
     let vault = NoteAssets::new(assets)?;
 
-    let recipient = NoteRecipient::new(serial_num, note_script, inputs.clone());
+    let recipient = NoteRecipient::new(serial_num.into(), note_script, inputs.clone());
 
     Ok(Note::new(vault, metadata, recipient))
 }
@@ -556,8 +558,9 @@ pub fn create_option_contract_note<R: FeltRng>(
 
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
-    let assembler = TransactionKernel::assembler().with_debug_mode(true);
-    let note_script = NoteScript::compile(note_code, assembler).unwrap();
+    let note_script: NoteScript = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
     let note_type = NoteType::Public;
 
     let payback_serial_num = rng.draw_word();
@@ -567,7 +570,7 @@ pub fn create_option_contract_note<R: FeltRng>(
         vec![requested_asset.into()],
         NoteType::Public,
         Felt::new(0),
-        payback_serial_num,
+        payback_serial_num.into(),
     )
     .unwrap();
 
@@ -659,16 +662,17 @@ pub fn compute_partial_swapp(
         new_requested_asset_amount,
     )
 }
-
 // Helper to instantiate Client
-pub async fn instantiate_client(endpoint: Endpoint) -> Result<Client, ClientError> {
+pub async fn instantiate_client(
+    endpoint: Endpoint,
+) -> Result<Client<FilesystemKeyStore<rand::prelude::StdRng>>, ClientError> {
     let timeout_ms = 10_000;
     let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
 
     let client = ClientBuilder::new()
         .rpc(rpc_api.clone())
         .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
+        .in_debug_mode(true.into())
         .build()
         .await?;
 
@@ -684,12 +688,9 @@ pub async fn create_public_immutable_contract(
     let counter_component = AccountComponent::compile(
         account_code.clone(),
         assembler.clone(),
-        vec![StorageSlot::Value([
-            Felt::new(0),
-            Felt::new(0),
-            Felt::new(0),
-            Felt::new(0),
-        ])],
+        vec![StorageSlot::Value(
+            [Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)].into(),
+        )],
     )
     .unwrap()
     .with_supports_all_types();
@@ -699,10 +700,10 @@ pub async fn create_public_immutable_contract(
         Endpoint::try_from(env::var("MIDEN_NODE_ENDPOINT").unwrap().as_str()).unwrap();
     let timeout_ms = 10_000;
     let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
-    let mut client = ClientBuilder::new()
+    let mut client: Client<FilesystemKeyStore<rand::prelude::StdRng>> = ClientBuilder::new()
         .rpc(rpc_api.clone())
         .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
+        .in_debug_mode(true.into())
         .build()
         .await?;
 
@@ -722,7 +723,7 @@ pub async fn create_public_immutable_contract(
 
 // Waits for note
 pub async fn wait_for_note(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<rand::prelude::StdRng>>,
     _account_id: &Account,
     expected: &Note,
 ) -> Result<(), ClientError> {
@@ -973,8 +974,10 @@ pub fn try_match_swapp_notes(
         let note1_swap_cnt = note1_in.inputs().values()[8].as_int();
         let note2_swap_cnt = note2_in.inputs().values()[8].as_int();
 
-        let note1_p2id_serial_num = get_p2id_serial_num(note1_in.serial_num(), note1_swap_cnt + 1);
-        let note2_p2id_serial_num = get_p2id_serial_num(note2_in.serial_num(), note2_swap_cnt + 1);
+        let note1_p2id_serial_num =
+            get_p2id_serial_num(note1_in.serial_num().into(), note1_swap_cnt + 1);
+        let note2_p2id_serial_num =
+            get_p2id_serial_num(note2_in.serial_num().into(), note2_swap_cnt + 1);
 
         let p2id_from_1_to_2 = create_p2id_note(
             matcher,
@@ -1081,8 +1084,10 @@ pub fn try_match_swapp_notes(
     let maker_swap_cnt = maker_note.inputs().values()[8].as_int();
     let taker_swap_cnt = taker_note.inputs().values()[8].as_int();
 
-    let maker_p2id_serial_num = get_p2id_serial_num(maker_note.serial_num(), maker_swap_cnt + 1);
-    let taker_p2id_serial_num = get_p2id_serial_num(taker_note.serial_num(), taker_swap_cnt + 1);
+    let maker_p2id_serial_num =
+        get_p2id_serial_num(maker_note.serial_num().into(), maker_swap_cnt + 1);
+    let taker_p2id_serial_num =
+        get_p2id_serial_num(taker_note.serial_num().into(), taker_swap_cnt + 1);
 
     // Create P2ID notes for the matched amounts
     let p2id_to_maker = create_p2id_note(
@@ -1143,7 +1148,7 @@ pub fn try_match_swapp_notes(
                 FungibleAsset::new(maker_want.faucet_id(), new_maker_want)
                     .unwrap()
                     .into(),
-                sn,
+                *sn,
                 swap_cnt,
             )
             .unwrap(),

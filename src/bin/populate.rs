@@ -14,7 +14,7 @@ use tracing::{error, info, warn};
 
 use miden_client::crypto::FeltRng;
 use miden_client::{
-    account::{Account, AccountId},
+    account::{Account, Address},
     keystore::FilesystemKeyStore,
     rpc::Endpoint,
     transaction::{OutputNote, TransactionRequestBuilder},
@@ -59,7 +59,7 @@ impl Default for MarketMakerConfig {
 }
 
 struct MarketMaker {
-    client: Option<Client>,
+    client: Option<Client<FilesystemKeyStore<rand::prelude::StdRng>>>,
     accounts: Vec<Account>,
     config: MarketMakerConfig,
     server_url: String,
@@ -150,10 +150,18 @@ impl MarketMaker {
                 QUANTITY_VARIANCE={}\n\
                 PRICE_VARIANCE={}\n\
                 UPDATE_INTERVAL_SECS={}\n",
-                faucets[0].id().to_bech32(NetworkId::Testnet), // USDC
-                faucets[1].id().to_bech32(NetworkId::Testnet), // ETH
-                matcher_account.id().to_hex(),                 // Matcher account
-                miden_endpoint,                                // Miden node endpoint
+                Address::from(miden_client::account::AccountIdAddress::new(
+                    faucets[0].id(),
+                    miden_client::account::AddressInterface::Unspecified
+                ))
+                .to_bech32(NetworkId::Testnet), // USDC
+                Address::from(miden_client::account::AccountIdAddress::new(
+                    faucets[1].id(),
+                    miden_client::account::AddressInterface::Unspecified
+                ))
+                .to_bech32(NetworkId::Testnet), // ETH
+                matcher_account.id().to_hex(), // Matcher account
+                miden_endpoint,                // Miden node endpoint
                 server_url,
                 config.spread_percentage,
                 config.num_levels,
@@ -200,8 +208,17 @@ impl MarketMaker {
             let mut client = instantiate_client(endpoint).await?;
             client.sync_state().await.unwrap();
 
-            let (_, usdc_faucet_id) = AccountId::from_bech32(&env::var("USDC_FAUCET_ID")?)?;
-            let (_, eth_faucet_id) = AccountId::from_bech32(&env::var("ETH_FAUCET_ID")?)?;
+            let (_, usdc_address) = Address::from_bech32(&env::var("USDC_FAUCET_ID")?)?;
+            let usdc_faucet_id = match usdc_address {
+                Address::AccountId(addr) => addr.id(),
+                _ => return Err(anyhow!("USDC faucet ID is not an account address")),
+            };
+
+            let (_, eth_address) = Address::from_bech32(&env::var("ETH_FAUCET_ID")?)?;
+            let eth_faucet_id = match eth_address {
+                Address::AccountId(addr) => addr.id(),
+                _ => return Err(anyhow!("ETH faucet ID is not an account address")),
+            };
 
             // Try to import faucets, but don't fail if they don't exist
             if let Err(e) = client.import_account_by_id(usdc_faucet_id).await {
@@ -324,8 +341,17 @@ impl MarketMaker {
 
         // Load environment variables
         dotenv().ok();
-        let (_, usdc_faucet_id) = AccountId::from_bech32(&env::var("USDC_FAUCET_ID")?)?;
-        let (_, eth_faucet_id) = AccountId::from_bech32(&env::var("ETH_FAUCET_ID")?)?;
+        let (_, usdc_address) = Address::from_bech32(&env::var("USDC_FAUCET_ID")?)?;
+        let usdc_faucet_id = match usdc_address {
+            Address::AccountId(addr) => addr.id(),
+            _ => return Err(anyhow!("USDC faucet ID is not an account address")),
+        };
+
+        let (_, eth_address) = Address::from_bech32(&env::var("ETH_FAUCET_ID")?)?;
+        let eth_faucet_id = match eth_address {
+            Address::AccountId(addr) => addr.id(),
+            _ => return Err(anyhow!("ETH faucet ID is not an account address")),
+        };
 
         let mut rng = rng();
         let spread = eth_price * self.config.spread_percentage / 100.0;
@@ -387,7 +413,7 @@ impl MarketMaker {
                 (eth_quantity * 1000.0) as u64, // Convert to smaller units
                 &eth_faucet_id,
                 &usdc_faucet_id,
-                serial_num,
+                serial_num.into(),
             );
 
             // Submit the note as a transaction to the blockchain
@@ -466,7 +492,7 @@ impl MarketMaker {
                 (eth_quantity * 1000.0) as u64, // Convert to smaller units
                 &eth_faucet_id,
                 &usdc_faucet_id,
-                serial_num,
+                serial_num.into(),
             );
 
             // Submit the note as a transaction to the blockchain

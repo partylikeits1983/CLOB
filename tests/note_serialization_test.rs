@@ -1,4 +1,4 @@
-use miden_client::{account::AccountId, note::Note, Word};
+use miden_client::{account::AccountId, note::Note, Felt};
 use miden_clob::common::{price_to_swap_note, try_match_swapp_notes};
 use miden_tx::utils::{Deserializable, Serializable};
 
@@ -20,7 +20,7 @@ fn test_price_to_swap_note_match() {
         2,
         &faucet_a,
         &faucet_b,
-        Word::default(),
+        [Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)],
     );
     let swap_note_2: miden_client::note::Note = price_to_swap_note(
         trader_2,
@@ -30,7 +30,7 @@ fn test_price_to_swap_note_match() {
         1,
         &faucet_a,
         &faucet_b,
-        Word::default(),
+        [Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)],
     );
 
     let swap_note_1_bytes: Vec<u8> = swap_note_1.to_bytes();
