@@ -47,18 +47,19 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
 
     // Initialize assets & accounts
     let asset_a: Asset =
-        FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap(), 100)
+        FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap(), 200)
             .unwrap()
             .into();
     let asset_b: Asset =
-        FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2.try_into().unwrap(), 100)
+        FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2.try_into().unwrap(), 200)
             .unwrap()
             .into();
 
     // Create sender and target and matcher account
     let alice_account = builder.add_existing_wallet(Auth::BasicAuth)?;
     let bob_account = builder.add_existing_wallet(Auth::BasicAuth)?;
-    let matcher_account = builder.add_existing_wallet(Auth::BasicAuth)?;
+    let matcher_account =
+        builder.add_existing_wallet_with_assets(Auth::BasicAuth, vec![asset_a, asset_b])?;
 
     // SWAPP NOTE 1
     let swap_note_1_asset_a: Asset =
@@ -116,12 +117,19 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
     println!("built notes, executing tx");
 
     let mut outputs = vec![
-        OutputNote::Full(swap_data.p2id_from_2_to_1),
-        OutputNote::Full(swap_data.p2id_from_1_to_2),
+        OutputNote::Full(swap_data.p2id_from_2_to_1.clone()),
+        OutputNote::Full(swap_data.p2id_from_1_to_2.clone()),
     ];
+
+    println!("p2id 1: {:?}", swap_data.p2id_from_1_to_2.script().root());
+    println!(
+        "p2id 2: {:?}",
+        swap_data.p2id_from_2_to_1.recipient().digest()
+    );
 
     if let Some(ref note) = swap_data.leftover_swapp_note {
         outputs.push(OutputNote::Full(note.clone()));
+        println!("swap output: {:?}", note.recipient().digest())
     }
 
     // CONSTRUCT AND EXECUTE TX (Success - Target Account)
@@ -167,8 +175,8 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
     let faucet_b = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2.try_into().unwrap();
 
     // Initialize assets for the matcher account (needs enough to cover both sides)
-    let asset_a_matcher: Asset = FungibleAsset::new(faucet_a, 100000000000).unwrap().into();
-    let asset_b_matcher: Asset = FungibleAsset::new(faucet_b, 100000000000).unwrap().into();
+    let _asset_a_matcher: Asset = FungibleAsset::new(faucet_a, 100000000000).unwrap().into();
+    let _asset_b_matcher: Asset = FungibleAsset::new(faucet_b, 100000000000).unwrap().into();
 
     // Create accounts
     let alice_account = builder.add_existing_wallet(Auth::BasicAuth)?;

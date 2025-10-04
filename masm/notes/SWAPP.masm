@@ -1,10 +1,10 @@
-use.miden::note
-use.miden::contracts::wallets::basic->wallet
-use.std::sys
 use.miden::account
-use.std::math::u64
+use.miden::contracts::wallets::basic->wallet
+use.miden::note
 use.miden::tx
 use.std::crypto::hashes::rpo
+use.std::math::u64
+use.std::sys
 
 # CONSTANTS
 # =================================================================================================
@@ -13,6 +13,8 @@ const.PUBLIC_NOTE=1
 const.EXECUTION_HINT_ALWAYS=1
 const.FACTOR=0x000186A0 # 1e5
 const.MAX_U32=0x0000000100000000
+
+const.P2ID_SCRIPT_ROOT=[8365110555382206798,12243624803742845558,9978343142123786225,5105407001527225633]
 
 # Memory Addresses
 # =================================================================================================
@@ -68,7 +70,6 @@ const.P2ID_OUTPUT_RECIPIENT_WORD = 0x0060
 const.OFFERED_ASSET_WORD = 0x0064
 
 # Temporary Memory Addresses
-
 const.NEW_ASSET_A = 0x0078
 
 # ERRORS
@@ -260,9 +261,11 @@ proc.is_consumer_is_creator
 
     if.true
         # => [acct_id_suffix_input, acct_id_suffix]
+
         eq
     else
         # => [acct_id_suffix_input, acct_id_suffix]
+
         drop drop push.0
     end
     # => [is_creator]
@@ -563,7 +566,7 @@ begin
     mem_store.AMT_TOKENS_B_IN drop drop drop
     # => []
 
-    push.14355791738953101471.16880376862595469307.4399717636953729920.18023939233288492685
+    push.P2ID_SCRIPT_ROOT
     mem_storew.P2ID_SCRIPT_ROOT_WORD dropw
     # => []
 

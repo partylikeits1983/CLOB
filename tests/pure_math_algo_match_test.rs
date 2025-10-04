@@ -370,7 +370,7 @@ fn test_try_match_swapp_notes_arithmetic_case4() {
     // 3. Assertions
     // ────────────────────────────────────────────────────────────
     // 3-a.  P2ID payloads
-    let p2id_a_out = swap
+    let _p2id_a_out = swap
         .p2id_from_1_to_2
         .assets()
         .iter()
@@ -378,7 +378,7 @@ fn test_try_match_swapp_notes_arithmetic_case4() {
         .unwrap()
         .unwrap_fungible();
 
-    let p2id_b_out = swap
+    let _p2id_b_out = swap
         .p2id_from_2_to_1
         .assets()
         .iter()
@@ -391,7 +391,7 @@ fn test_try_match_swapp_notes_arithmetic_case4() {
         .leftover_swapp_note
         .as_ref()
         .expect("maker not 100 % filled");
-    let (left_off, left_req) = decompose_swapp_note(leftover).unwrap();
+    let (_left_off, _left_req) = decompose_swapp_note(leftover).unwrap();
 }
 
 #[test]

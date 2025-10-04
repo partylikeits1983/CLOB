@@ -323,7 +323,7 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
     // increment the swap count
     let swap_count_3 = swap_note_1.inputs().values()[8].as_int() + 1;
 
-    let swap_note_3 = create_partial_swap_note(
+    let _swap_note_3 = create_partial_swap_note(
         alice_account.id(),         // initial order creator
         matcher_account.id(), // matcher account is the last account to interact with the SWAP note
         swap_note_3_asset_a.into(), // remaining offered
