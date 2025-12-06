@@ -1,0 +1,38 @@
+[package]
+name = "clob_tools"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+miden-client = { workspace = true }
+miden-lib = { workspace = true }
+miden-objects = { workspace = true }
+miden-tx = { workspace = true }
+miden-crypto = { workspace = true }
+miden-assembly = { workspace = true }
+miden-testing = { workspace = true }
+
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+rand_chacha = { workspace = true }
+
+# Additional utilities
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+base64 = { workspace = true }
+dotenv = { workspace = true }
+hex = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+reqwest = { workspace = true }
+
+[dev-dependencies]
+orderbook = { path = "../orderbook" }
+
+[features]
+client = []

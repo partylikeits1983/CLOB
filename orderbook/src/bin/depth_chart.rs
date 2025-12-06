@@ -1,7 +1,8 @@
 use chrono::Local;
 use clap::Parser;
+use clob_tools::{deserialize_note, generate_depth_chart_string};
 use miden_client::{account::AccountId, Felt};
-use miden_clob::{database::Database, note_serialization::deserialize_note};
+use orderbook::database::Database;
 use std::{
     env,
     io::{self, Write},
@@ -268,7 +269,7 @@ fn generate_depth_chart_to_string(
     show_orders: bool,
 ) -> String {
     // Use the new string-based function
-    miden_clob::common::generate_depth_chart_string(
+    generate_depth_chart_string(
         swap_notes,
         usdc_faucet,
         eth_faucet,

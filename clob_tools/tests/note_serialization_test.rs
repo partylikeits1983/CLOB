@@ -1,5 +1,5 @@
+use clob_tools::{price_to_swap_note, try_match_swapp_notes};
 use miden_client::{account::AccountId, note::Note, Word};
-use miden_clob::common::{price_to_swap_note, try_match_swapp_notes};
 use miden_tx::utils::{Deserializable, Serializable};
 
 #[test]

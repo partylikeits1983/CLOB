@@ -6,3 +6,5 @@
 *sqlite3-wal
 .env
 /data
+/clob_tools/target
+/orderbook/target

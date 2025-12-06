@@ -13,11 +13,48 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 
-use crate::{
-    database::{Database, SwapNoteRecord},
-    note_serialization::deserialize_note,
-    orderbook::OrderBookManager,
-};
+use clob_tools::deserialize_note;
+use orderbook::{Database, OrderBookManager, SwapNoteRecord};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize tracing
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+
+    // Load environment variables
+    dotenv().ok();
+
+    // Initialize database
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:./clob.sqlite3".to_string());
+    let database = Arc::new(Database::new(&database_url).await?);
+
+    // Initialize order book manager
+    let orderbook_manager = Arc::new(RwLock::new(OrderBookManager::new()));
+    orderbook_manager
+        .write()
+        .await
+        .initialize_from_database(&database)
+        .await?;
+
+    // Create application state
+    let state = AppState {
+        db: database,
+        orderbook_manager,
+    };
+
+    // Create router
+    let app = create_router(state);
+
+    // Start server
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    info!("Server running on http://0.0.0.0:3000");
+
+    axum::serve(listener, app).await?;
+    Ok(())
+}
 
 #[derive(Clone)]
 pub struct AppState {

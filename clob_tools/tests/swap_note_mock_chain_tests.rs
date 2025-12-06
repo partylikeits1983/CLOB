@@ -1,3 +1,4 @@
+use clob_tools::{create_partial_swap_note, try_match_swapp_notes};
 use miden_client::{
     account::AccountId,
     asset::{Asset, FungibleAsset},
@@ -5,7 +6,6 @@ use miden_client::{
     testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1,
     Word,
 };
-use miden_clob::{create_partial_swap_note, try_match_swapp_notes};
 use miden_testing::{Auth, MockChain};
 
 use miden_objects::{
@@ -251,7 +251,7 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
 
     // Check leftover
     if let Some(ref leftover) = swap_data.leftover_swapp_note {
-        let (offered, requested) = miden_clob::decompose_swapp_note(leftover).unwrap();
+        let (offered, requested) = clob_tools::decompose_swapp_note(leftover).unwrap();
         println!("Leftover SWAPP note:");
         println!(
             "  - Offers: {} of faucet {:?}",

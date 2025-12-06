@@ -1,4 +1,4 @@
-use miden_clob::note_serialization;
+// Remove this import since note_serialization is now part of miden_clob
 
 use anyhow::{anyhow, Result};
 use dotenv::dotenv;
@@ -12,6 +12,9 @@ use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
+use clob_tools::{
+    delete_keystore_and_store, instantiate_client, price_to_swap_note, setup_accounts_and_faucets,
+};
 use miden_client::crypto::FeltRng;
 use miden_client::{
     account::{Account, AccountId},
@@ -19,9 +22,6 @@ use miden_client::{
     rpc::Endpoint,
     transaction::{OutputNote, TransactionRequestBuilder},
     Client,
-};
-use miden_clob::common::{
-    delete_keystore_and_store, instantiate_client, price_to_swap_note, setup_accounts_and_faucets,
 };
 // use rand::{RngCore, rngs::StdRng};
 
@@ -492,7 +492,7 @@ impl MarketMaker {
 
         // Submit orders to server
         for (i, note) in orders.iter().enumerate() {
-            let note_data = note_serialization::serialize_note(note)?;
+            let note_data = clob_tools::serialize_note(note)?;
 
             let submit_request = serde_json::json!({
                 "note_data": note_data

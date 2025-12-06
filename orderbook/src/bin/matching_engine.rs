@@ -6,12 +6,12 @@ use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 use chrono::Utc;
-use miden_client::{account::AccountId, note::Note, rpc::Endpoint};
-use miden_clob::{
-    common::{instantiate_client, try_match_swapp_notes},
-    database::{Database, P2IdNoteRecord, SwapNoteRecord, SwapNoteStatus},
-    note_serialization::{deserialize_note, extract_note_info, serialize_note},
+use clob_tools::{
+    deserialize_note, extract_note_info, instantiate_client, serialize_note, try_match_swapp_notes,
+    MatchedSwap,
 };
+use miden_client::{account::AccountId, note::Note, rpc::Endpoint};
+use orderbook::{Database, P2IdNoteRecord, SwapNoteRecord, SwapNoteStatus};
 use uuid::Uuid;
 
 // Maximum number of order pairs to match in a single batch
@@ -188,13 +188,7 @@ async fn run_matching_cycle(
 // Binary search approach: try batch, if it fails, divide in half and try smaller batches
 // Always re-fetch fresh data from database to ensure orders still exist
 fn execute_batch_with_binary_search<'a>(
-    matches: &'a [(
-        miden_clob::common::MatchedSwap,
-        miden_clob::database::SwapNoteRecord,
-        miden_clob::database::SwapNoteRecord,
-        usize,
-        usize,
-    )],
+    matches: &'a [(MatchedSwap, SwapNoteRecord, SwapNoteRecord, usize, usize)],
     matcher_id: AccountId,
     endpoint: Endpoint,
     db: &'a Database,
@@ -339,13 +333,7 @@ fn execute_batch_with_binary_search<'a>(
 
 // Simplified batch execution following the working test pattern exactly
 async fn execute_batch_blockchain_match_simplified(
-    matches_batch: &[(
-        miden_clob::common::MatchedSwap,
-        miden_clob::database::SwapNoteRecord,
-        miden_clob::database::SwapNoteRecord,
-        usize,
-        usize,
-    )],
+    matches_batch: &[(MatchedSwap, SwapNoteRecord, SwapNoteRecord, usize, usize)],
     matcher_id: AccountId,
     endpoint: Endpoint,
     db: &Database,
@@ -473,8 +461,8 @@ async fn execute_batch_blockchain_match_simplified(
             );
 
             // Determine which note was partially filled by comparing with the leftover note creator
-            let leftover_creator = miden_clob::common::creator_of(leftover_note);
-            let note1_creator = miden_clob::common::creator_of(&swap_data.swap_note_1);
+            let leftover_creator = clob_tools::creator_of(leftover_note);
+            let note1_creator = clob_tools::creator_of(&swap_data.swap_note_1);
 
             let (partially_filled_record, fully_filled_record) =
                 if leftover_creator == note1_creator {
@@ -569,12 +557,12 @@ async fn execute_batch_blockchain_match_simplified(
 
 // Simplified individual blockchain match execution following the test pattern exactly
 async fn execute_blockchain_match_simplified(
-    swap_data: &miden_clob::common::MatchedSwap,
+    swap_data: &MatchedSwap,
     matcher_id: AccountId,
     endpoint: Endpoint,
     db: &Database,
-    record1: &miden_clob::database::SwapNoteRecord,
-    record2: &miden_clob::database::SwapNoteRecord,
+    record1: &SwapNoteRecord,
+    record2: &SwapNoteRecord,
 ) -> Result<String> {
     info!(
         "Executing blockchain transaction for match between {} and {}",
@@ -678,8 +666,8 @@ async fn execute_blockchain_match_simplified(
         );
 
         // Determine which note was partially filled by comparing with the leftover note creator
-        let leftover_creator = miden_clob::common::creator_of(leftover_note);
-        let note1_creator = miden_clob::common::creator_of(&swap_data.swap_note_1);
+        let leftover_creator = clob_tools::creator_of(leftover_note);
+        let note1_creator = clob_tools::creator_of(&swap_data.swap_note_1);
 
         let (partially_filled_record, fully_filled_record) = if leftover_creator == note1_creator {
             (record1, record2)
@@ -773,15 +761,11 @@ async fn execute_blockchain_match_simplified(
     Ok(tx_id_hex)
 }
 
-async fn save_p2id_notes_to_db(
-    db: &Database,
-    swap_data: &miden_clob::common::MatchedSwap,
-    _tx_id: &str,
-) -> Result<()> {
+async fn save_p2id_notes_to_db(db: &Database, swap_data: &MatchedSwap, _tx_id: &str) -> Result<()> {
     // Save P2ID note from note1 to note2
     let p2id_1_to_2_serialized = serialize_note(&swap_data.p2id_from_1_to_2)?;
-    let note1_creator = miden_clob::common::creator_of(&swap_data.swap_note_1);
-    let note2_creator = miden_clob::common::creator_of(&swap_data.swap_note_2);
+    let note1_creator = clob_tools::creator_of(&swap_data.swap_note_1);
+    let note2_creator = clob_tools::creator_of(&swap_data.swap_note_2);
 
     // Extract asset info from P2ID note 1->2
     let p2id_1_to_2_asset = swap_data
