@@ -12,7 +12,7 @@ use miden_client::{
 use miden_objects::note::NoteDetails;
 use tokio::time::sleep;
 
-use miden_clob::common::{
+use clob_tools::{
     create_p2id_note, create_partial_swap_note, delete_keystore_and_store, get_p2id_serial_num,
     instantiate_client, setup_accounts_and_faucets, try_match_swapp_notes, wait_for_note,
 };

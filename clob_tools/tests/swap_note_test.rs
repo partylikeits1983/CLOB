@@ -14,7 +14,7 @@ use miden_objects::note::NoteDetails;
 
 use std::sync::Arc;
 
-use miden_clob::{
+use clob_tools::{
     common::{
         compute_partial_swapp, create_order, create_p2id_note, create_partial_swap_note,
         delete_keystore_and_store, get_p2id_serial_num, get_swapp_note, instantiate_client,

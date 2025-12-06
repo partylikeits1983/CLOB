@@ -36,7 +36,7 @@ pub fn deserialize_note(encoded: &str) -> Result<Note> {
 
 // Helper function to extract key information from a note for database storage
 pub fn extract_note_info(note: &Note) -> Result<(String, String, u64, String, u64, f64, bool)> {
-    use crate::common::{creator_of, decompose_swapp_note};
+    use super::swap::{creator_of, decompose_swapp_note};
 
     let (offered, requested) = decompose_swapp_note(note)
         .map_err(|e| anyhow!("Failed to decompose swap note: {:?}", e))?;

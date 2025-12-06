@@ -1,10 +1,8 @@
-use miden_client::{account::AccountId, asset::FungibleAsset, Word};
-use miden_clob::{
-    common::{
-        create_partial_swap_note, decompose_swapp_note, price_to_swap_note, try_match_swapp_notes,
-    },
-    compute_partial_swapp, create_order_simple_testing,
+use clob_tools::{
+    compute_partial_swapp, create_order_simple_testing, create_partial_swap_note,
+    decompose_swapp_note, price_to_swap_note, try_match_swapp_notes,
 };
+use miden_client::{account::AccountId, asset::FungibleAsset, Word};
 
 #[test]
 #[ignore]

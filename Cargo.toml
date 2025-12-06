@@ -1,10 +1,9 @@
-[package]
-name = "miden-clob"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = ["clob_tools", "orderbook"]
 resolver = "2"
 
-[dependencies]
+[workspace.dependencies]
+# Miden dependencies
 miden-client = { version = "0.10.2", features = ["testing", "tonic", "sqlite"] }
 miden-lib = { version = "0.10.1", default-features = false }
 miden-objects = { version = "0.10.1", default-features = false }
@@ -13,10 +12,15 @@ miden-crypto = { version = "0.15.7", features = ["executable"] }
 miden-assembly = "0.15.0"
 miden-testing = "0.10.1"
 
-rand = { version = "0.9" }
+# Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
+
+# Async runtime
 tokio = { version = "1.40", features = ["rt-multi-thread", "net", "macros", "fs"] }
+
+# Random number generation
+rand = { version = "0.9" }
 rand_chacha = "0.9.0"
 
 # Web server dependencies
@@ -28,10 +32,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Database dependencies
 rusqlite = { version = "0.36", features = ["bundled", "chrono", "uuid"] }
+rusqlite_migration = "2.2.0"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
-# HTTP client for price fetching
+# HTTP client
 reqwest = { version = "0.11", features = ["json"] }
 
 # Additional utilities
@@ -42,26 +47,3 @@ dotenv = "0.15"
 hex = "0.4"
 clap = { version = "4.0", features = ["derive"] }
 
-[features]
-client = []
-
-
-[[bin]]
-name = "server"
-path = "src/main.rs"
-
-[[bin]]
-name = "populate"
-path = "src/bin/populate.rs"
-
-[[bin]]
-name = "depth_chart"
-path = "src/bin/depth_chart.rs"
-
-[[bin]]
-name = "matching_engine"
-path = "src/bin/matching_engine.rs"
-
-[[bin]]
-name = "deploy_faucets"
-path = "src/bin/testing/deploy_faucets.rs"

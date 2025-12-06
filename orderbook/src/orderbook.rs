@@ -7,10 +7,10 @@ use uuid::Uuid;
 
 use miden_client::note::Note;
 
-use crate::{
-    database::{Database, SwapNoteRecord, SwapNoteStatus},
-    note_serialization::{extract_note_info, serialize_note},
-};
+use crate::database::{Database, SwapNoteRecord, SwapNoteStatus};
+
+// Import from the external crate using the correct name
+use clob_tools::{extract_note_info, serialize_note};
 
 pub struct OrderBookManager {
     // In-memory cache of open orders for fast matching
