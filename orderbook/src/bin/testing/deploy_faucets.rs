@@ -1,44 +1,46 @@
-use miden_lib::account::auth;
-use rand::RngCore;
+use miden_lib::account::auth::{self, AuthRpoFalcon512};
+use rand::{rngs::StdRng, RngCore};
 use std::sync::Arc;
 use tokio::time::Duration;
 
 use miden_client::{
     account::{
-        component::{BasicFungibleFaucet, BasicWallet, RpoFalcon512},
-        AccountBuilder, AccountId, AccountStorageMode, AccountType,
+        component::{BasicFungibleFaucet, BasicWallet},
+        AccountId, AccountStorageMode, AccountType,
     },
     asset::{FungibleAsset, TokenSymbol},
     auth::AuthSecretKey,
     builder::ClientBuilder,
-    crypto::SecretKey,
     keystore::FilesystemKeyStore,
     note::{create_p2id_note, NoteType},
-    rpc::{Endpoint, TonicRpcClient},
+    rpc::{Endpoint, GrpcClient},
     transaction::{OutputNote, PaymentNoteDescription, TransactionRequestBuilder},
     ClientError, Felt,
 };
-use miden_objects::account::{AccountIdVersion, NetworkId};
+use miden_objects::{
+    account::{AccountBuilder, AccountIdVersion},
+    address::NetworkId,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), ClientError> {
     // Initialize client & keystore
     let endpoint = Endpoint::testnet();
     let timeout_ms = 10_000;
-    let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
+    let rpc_api = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
+    let keystore_path = std::path::PathBuf::from("./keystore");
+    let keystore = Arc::new(FilesystemKeyStore::<StdRng>::new(keystore_path).unwrap());
 
     let mut client = ClientBuilder::new()
         .rpc(rpc_api)
-        .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
+        .authenticator(keystore.clone())
+        .in_debug_mode(true.into())
         .build()
         .await?;
 
     let sync_summary = client.sync_state().await.unwrap();
     println!("Latest block: {}", sync_summary.block_num);
 
-    let keystore: FilesystemKeyStore<rand::prelude::StdRng> =
-        FilesystemKeyStore::new("./keystore".into()).unwrap();
 
     //------------------------------------------------------------
     // STEP 1: Create a basic wallet for Alice
@@ -49,26 +51,22 @@ async fn main() -> Result<(), ClientError> {
     let mut init_seed = [0_u8; 32];
     client.rng().fill_bytes(&mut init_seed);
 
-    let key_pair = SecretKey::with_rng(client.rng());
+    let key_pair = AuthSecretKey::new_rpo_falcon512();
 
     // Build the account
-    let builder = AccountBuilder::new(init_seed)
+    let alice_account = AccountBuilder::new(init_seed)
         .account_type(AccountType::RegularAccountUpdatableCode)
         .storage_mode(AccountStorageMode::Public)
-        .with_auth_component(RpoFalcon512::new(key_pair.public_key()))
-        .with_component(BasicWallet);
-
-    let (alice_account, seed) = builder.build().unwrap();
+        .with_auth_component(AuthRpoFalcon512::new(key_pair.public_key().to_commitment()))
+        .with_component(BasicWallet)
+        .build()
+        .unwrap();
 
     // Add the account to the client
-    client
-        .add_account(&alice_account, Some(seed), false)
-        .await?;
+    client.add_account(&alice_account, false).await?;
 
     // Add the key pair to the keystore
-    keystore
-        .add_key(&AuthSecretKey::RpoFalcon512(key_pair))
-        .unwrap();
+    keystore.add_key(&key_pair).unwrap();
 
     println!(
         "Alice's account ID: {:?}",
@@ -90,26 +88,22 @@ async fn main() -> Result<(), ClientError> {
     let max_supply = Felt::new(1_000_000);
 
     // Generate key pair
-    let key_pair = SecretKey::with_rng(client.rng());
+    let key_pair = AuthSecretKey::new_rpo_falcon512();
 
     // Build the account
-    let builder = AccountBuilder::new(init_seed)
+    let faucet_account = AccountBuilder::new(init_seed)
         .account_type(AccountType::FungibleFaucet)
         .storage_mode(AccountStorageMode::Public)
-        .with_auth_component(auth::NoAuth)
-        .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap());
-
-    let (faucet_account, seed) = builder.build().unwrap();
+        .with_auth_component(AuthRpoFalcon512::new(key_pair.public_key().to_commitment()))
+        .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap())
+        .build()
+        .unwrap();
 
     // Add the faucet to the client
-    client
-        .add_account(&faucet_account, Some(seed), false)
-        .await?;
+    client.add_account(&faucet_account, false).await?;
 
     // Add the key pair to the keystore
-    keystore
-        .add_key(&AuthSecretKey::RpoFalcon512(key_pair))
-        .unwrap();
+    keystore.add_key(&key_pair).unwrap();
 
     println!(
         "Faucet account ID: {:?}",
@@ -140,10 +134,9 @@ async fn main() -> Result<(), ClientError> {
 
         println!("tx request built");
 
-        let tx_execution_result = client
-            .new_transaction(faucet_account.id(), transaction_request)
+        let tx_id = client
+            .submit_new_transaction(faucet_account.id(), transaction_request)
             .await?;
-        client.submit_transaction(tx_execution_result).await?;
         println!("Minted note #{} of {} tokens for Alice.", i, amount);
     }
     println!("All 5 notes minted for Alice successfully!");
@@ -171,11 +164,9 @@ async fn main() -> Result<(), ClientError> {
             let transaction_request = TransactionRequestBuilder::new()
                 .build_consume_notes(list_of_note_ids)
                 .unwrap();
-            let tx_execution_result = client
-                .new_transaction(alice_account.id(), transaction_request)
+            let tx_id = client
+                .submit_new_transaction(alice_account.id(), transaction_request)
                 .await?;
-
-            client.submit_transaction(tx_execution_result).await?;
             println!("All of Alice's notes consumed successfully.");
             break;
         } else {
@@ -231,12 +222,9 @@ async fn main() -> Result<(), ClientError> {
         .build()
         .unwrap();
 
-    let tx_execution_result = client
-        .new_transaction(alice_account.id(), transaction_request)
+    let tx_id = client
+        .submit_new_transaction(alice_account.id(), transaction_request)
         .await?;
-
-    // Submitting the transaction
-    client.submit_transaction(tx_execution_result).await?;
     println!("Submitted a transaction with 4 P2ID notes.");
 
     println!("Submitting one more single P2ID transaction...");
@@ -268,11 +256,9 @@ async fn main() -> Result<(), ClientError> {
             client.rng(),     // rng
         )
         .unwrap();
-    let tx_execution_result = client
-        .new_transaction(alice_account.id(), transaction_request)
+    let tx_id = client
+        .submit_new_transaction(alice_account.id(), transaction_request)
         .await?;
-
-    client.submit_transaction(tx_execution_result).await?;
 
     println!("\nAll steps completed successfully!");
     println!("Alice created a wallet, a faucet was deployed,");

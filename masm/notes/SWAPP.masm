@@ -180,8 +180,8 @@ proc.build_p2id_recipient_hash
     mem_load.SWAPP_CREATOR_SUFFIX_INPUT mem_load.SWAPP_CREATOR_PREFIX_INPUT
     push.0.0
 
-    push.4000 mem_storew dropw
-    push.4004 mem_storew dropw
+    push.4000 mem_storew_be dropw
+    push.4004 mem_storew_be dropw
 
     push.8.4000
     # => [ptr, elements]
@@ -278,7 +278,7 @@ end
 proc.handle_reclaim
     push.0 exec.note::get_assets
 
-    mem_loadw.0
+    mem_loadw_be.0
 
     call.wallet::receive_asset
 
@@ -315,7 +315,7 @@ proc.execute_SWAPp
     push.OFFERED_ASSET_WORD exec.note::get_assets assert.err=ERR_SWAP_WRONG_NUMBER_OF_ASSETS drop
     # => []
 
-    mem_loadw.OFFERED_ASSET_WORD
+    mem_loadw_be.OFFERED_ASSET_WORD
     # => [OFFERED_ASSET]
 
     mem_store.TOKEN_A_ID_PREFIX
@@ -339,7 +339,7 @@ proc.execute_SWAPp
     eq.14 assert.err=ERR_SWAP_WRONG_NUMBER_OF_INPUTS
     # => [inputs_ptr]
 
-    mem_loadw.REQUESTED_ASSET_WORD_INPUT
+    mem_loadw_be.REQUESTED_ASSET_WORD_INPUT
     # => [REQUESTED_ASSET]
 
     mem_store.TOKEN_B_ID_PREFIX
@@ -419,13 +419,13 @@ proc.execute_SWAPp
     # 3) create SWAPp' and calculate token_a' & token_b'
     # 4) add token_a' and token_b' to SWAPp'
 
-    padw mem_loadw.P2ID_SCRIPT_ROOT_WORD
+    padw mem_loadw_be.P2ID_SCRIPT_ROOT_WORD
     # => [P2ID_SCRIPT_HASH]
 
     exec.increment_swap_count
     # => [P2ID_SCRIPT_HASH]
 
-    padw mem_loadw.SWAPP_COUNT_INPUT
+    padw mem_loadw_be.SWAPP_COUNT_INPUT
     # => [SWAP_COUNT, P2ID_SCRIPT_HASH]
 
     exec.note::get_serial_number
@@ -488,7 +488,7 @@ proc.execute_SWAPp
         # => [REQUESTED_ASSET_REMAINING]
 
         # overwrite memory!
-        mem_storew.REQUESTED_ASSET_WORD_INPUT dropw
+        mem_storew_be.REQUESTED_ASSET_WORD_INPUT dropw
         # => []
 
         push.16.0
@@ -529,7 +529,7 @@ proc.execute_SWAPp
         dupw call.wallet::receive_asset
         # => [ASSET, payback_tag, aux, note_type, SWAPp_RECIPIENT]
 
-        mem_storew.NEW_ASSET_A dropw
+        mem_storew_be.NEW_ASSET_A dropw
         # => [payback_tag, aux, note_type, SWAPp_RECIPIENT]
         # => [tag, aux, note_type, execution_hint, RECIPIENT]
 
@@ -540,7 +540,7 @@ proc.execute_SWAPp
         padw
         # => [EMPTY_WORD, note_idx, pad(15) ...]
 
-        mem_loadw.NEW_ASSET_A
+        mem_loadw_be.NEW_ASSET_A
         # => [ASSET, note_idx, pad(15) ...]
 
         call.wallet::move_asset_to_note
@@ -567,7 +567,7 @@ begin
     # => []
 
     push.14355791738953101471.16880376862595469307.4399717636953729920.18023939233288492685
-    mem_storew.P2ID_SCRIPT_ROOT_WORD dropw
+    mem_storew_be.P2ID_SCRIPT_ROOT_WORD dropw
     # => []
 
     exec.is_consumer_is_creator

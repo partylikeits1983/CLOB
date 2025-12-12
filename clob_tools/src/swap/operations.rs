@@ -6,10 +6,9 @@ use miden_client::{
     asset::{Asset, FungibleAsset},
     note::{
         build_swap_tag, Note, NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata,
-        NoteRecipient, NoteScript, NoteTag, NoteType,
+        NoteRecipient, NoteTag, NoteType,
     },
-    transaction::TransactionKernel,
-    Felt, Word,
+    Felt, Word, ScriptBuilder,
 };
 
 use miden_objects::{Hasher, NoteError};
@@ -30,8 +29,7 @@ pub fn create_partial_swap_note(
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
 
-    let assembler = TransactionKernel::assembler().with_debug_mode(true);
-    let note_script = NoteScript::compile(note_code, assembler).unwrap();
+    let note_script = ScriptBuilder::new(true).compile_note_script(note_code).unwrap();
     let note_type = NoteType::Public;
 
     let requested_asset_word: Word = requested_asset.into();
@@ -69,7 +67,7 @@ pub fn create_partial_swap_note(
     )?;
 
     let assets = NoteAssets::new(vec![offered_asset])?;
-    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
+    let recipient = NoteRecipient::new(swap_serial_num.into(), note_script.clone(), inputs.clone());
     let note = Note::new(assets.clone(), metadata, recipient.clone());
 
     Ok(note)
@@ -98,8 +96,7 @@ pub fn create_partial_swap_note_cancellable(
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
 
-    let assembler = TransactionKernel::assembler().with_debug_mode(true);
-    let note_script = NoteScript::compile(note_code, assembler).unwrap();
+    let note_script = ScriptBuilder::new(true).compile_note_script(note_code).unwrap();
     let note_type = NoteType::Public;
 
     let requested_asset_word: Word = requested_asset.into();
@@ -141,7 +138,7 @@ pub fn create_partial_swap_note_cancellable(
     )?;
 
     let assets = NoteAssets::new(vec![offered_asset])?;
-    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
+    let recipient = NoteRecipient::new(swap_serial_num.into(), note_script.clone(), inputs.clone());
     let note = Note::new(assets.clone(), metadata, recipient.clone());
 
     println!(
@@ -437,8 +434,8 @@ pub fn try_match_swapp_notes(
         let note1_swap_cnt = note1_in.inputs().values()[8].as_int();
         let note2_swap_cnt = note2_in.inputs().values()[8].as_int();
 
-        let note1_p2id_serial_num = get_p2id_serial_num(note1_in.serial_num(), note1_swap_cnt + 1);
-        let note2_p2id_serial_num = get_p2id_serial_num(note2_in.serial_num(), note2_swap_cnt + 1);
+        let note1_p2id_serial_num = get_p2id_serial_num(*note1_in.serial_num(), note1_swap_cnt + 1);
+        let note2_p2id_serial_num = get_p2id_serial_num(*note2_in.serial_num(), note2_swap_cnt + 1);
 
         let p2id_from_1_to_2 = crate::notes::create_p2id_note(
             matcher,
@@ -545,8 +542,8 @@ pub fn try_match_swapp_notes(
     let maker_swap_cnt = maker_note.inputs().values()[8].as_int();
     let taker_swap_cnt = taker_note.inputs().values()[8].as_int();
 
-    let maker_p2id_serial_num = get_p2id_serial_num(maker_note.serial_num(), maker_swap_cnt + 1);
-    let taker_p2id_serial_num = get_p2id_serial_num(taker_note.serial_num(), taker_swap_cnt + 1);
+    let maker_p2id_serial_num = get_p2id_serial_num(*maker_note.serial_num(), maker_swap_cnt + 1);
+    let taker_p2id_serial_num = get_p2id_serial_num(*taker_note.serial_num(), taker_swap_cnt + 1);
 
     // Create P2ID notes for the matched amounts
     let p2id_to_maker = crate::notes::create_p2id_note(
@@ -607,7 +604,7 @@ pub fn try_match_swapp_notes(
                 FungibleAsset::new(maker_want.faucet_id(), new_maker_want)
                     .unwrap()
                     .into(),
-                sn,
+                *sn,
                 swap_cnt,
             )
             .unwrap(),

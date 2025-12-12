@@ -1,17 +1,19 @@
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
+use rand::rngs::StdRng;
 
 use miden_client::{
     account::Account,
     builder::ClientBuilder,
+    keystore::FilesystemKeyStore,
     note::{Note, NoteId, NoteTag},
-    rpc::{Endpoint, TonicRpcClient},
+    rpc::{Endpoint, GrpcClient},
     store::InputNoteRecord,
     Client, ClientError,
 };
 
 pub async fn wait_for_notes(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<StdRng>>,
     account_id: &Account,
     expected: usize,
 ) -> Result<(), ClientError> {
@@ -32,7 +34,7 @@ pub async fn wait_for_notes(
 }
 
 pub async fn get_swapp_note(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<StdRng>>,
     tag: NoteTag,
     swapp_note_id: NoteId,
 ) -> Result<(), ClientError> {
@@ -58,14 +60,16 @@ pub async fn get_swapp_note(
 }
 
 // Helper to instantiate Client
-pub async fn instantiate_client(endpoint: Endpoint) -> Result<Client, ClientError> {
+pub async fn instantiate_client(endpoint: Endpoint) -> Result<Client<FilesystemKeyStore<StdRng>>, ClientError> {
     let timeout_ms = 10_000;
-    let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
+    let rpc_api = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
+    let keystore_path = std::path::PathBuf::from("./keystore");
+    let keystore = Arc::new(FilesystemKeyStore::<StdRng>::new(keystore_path).unwrap());
 
     let client = ClientBuilder::new()
         .rpc(rpc_api.clone())
-        .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
+        .authenticator(keystore.clone())
+        .in_debug_mode(true.into())
         .build()
         .await?;
 
@@ -74,7 +78,7 @@ pub async fn instantiate_client(endpoint: Endpoint) -> Result<Client, ClientErro
 
 // Waits for note
 pub async fn wait_for_note(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<StdRng>>,
     _account_id: &Account,
     expected: &Note,
 ) -> Result<(), ClientError> {

@@ -1,7 +1,9 @@
+use rand::rngs::StdRng;
 use miden_client::{
     account::AccountId,
     asset::{Asset, FungibleAsset},
     crypto::FeltRng,
+    keystore::FilesystemKeyStore,
     note::Note,
     transaction::{OutputNote, TransactionRequestBuilder},
     Client, Felt, Word,
@@ -9,7 +11,7 @@ use miden_client::{
 use miden_objects::NoteError;
 
 pub async fn create_order(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<StdRng>>,
     trader: AccountId,
     buy_asset: Asset,
     sell_asset: Asset,
@@ -22,7 +24,7 @@ pub async fn create_order(
         trader,
         sell_asset.into(),
         buy_asset.into(),
-        swap_serial_num,
+        *swap_serial_num,
         swap_count,
     )
     .unwrap();
@@ -31,21 +33,20 @@ pub async fn create_order(
         .own_output_notes(vec![OutputNote::Full(swapp_note.clone())])
         .build()
         .unwrap();
-    let tx_result = client.new_transaction(trader, note_req).await.unwrap();
 
+    let tx_id = client.submit_new_transaction(trader, note_req).await.unwrap();
     println!(
         "View transaction on MidenScan: https://testnet.midenscan.com/tx/{:?}",
-        tx_result.executed_transaction().id()
+        tx_id
     );
 
-    let _ = client.submit_transaction(tx_result).await;
     client.sync_state().await.unwrap();
 
     Ok(swapp_note)
 }
 
 pub async fn create_order_simple(
-    client: &mut Client,
+    client: &mut Client<FilesystemKeyStore<StdRng>>,
     trader: AccountId,
     offered_asset: Asset,
     requested_asset: Asset,
@@ -58,7 +59,7 @@ pub async fn create_order_simple(
         trader,
         offered_asset.into(),
         requested_asset.into(),
-        swap_serial_num,
+        *swap_serial_num,
         swap_count,
     )
     .unwrap();
@@ -67,14 +68,13 @@ pub async fn create_order_simple(
         .own_output_notes(vec![OutputNote::Full(swapp_note.clone())])
         .build()
         .unwrap();
-    let tx_result = client.new_transaction(trader, note_req).await.unwrap();
 
+    let tx_id = client.submit_new_transaction(trader, note_req).await.unwrap();
     println!(
         "View transaction on MidenScan: https://testnet.midenscan.com/tx/{:?}",
-        tx_result.executed_transaction().id()
+        tx_id
     );
 
-    let _ = client.submit_transaction(tx_result).await;
     client.sync_state().await.unwrap();
 
     Ok(swapp_note)
@@ -93,7 +93,7 @@ pub fn create_order_simple_testing(
         trader,
         offered_asset.into(),
         requested_asset.into(),
-        swap_serial_num,
+        *swap_serial_num,
         swap_count,
     )
     .unwrap();
