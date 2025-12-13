@@ -10,7 +10,7 @@ use miden_client::{
     auth::AuthSecretKey,
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
-    note::{NoteType},
+    note::NoteType,
     rpc::GrpcClient,
     transaction::TransactionRequestBuilder,
     Client, ClientError, Felt, Word,
@@ -81,7 +81,7 @@ pub async fn setup_accounts_and_faucets(
     num_faucets: usize,
     balances: Vec<Vec<u64>>,
 ) -> Result<(Vec<Account>, Vec<Account>), ClientError> {
-    use crate::client::{wait_for_notes};
+    use crate::client::wait_for_notes;
 
     // ---------------------------------------------------------------------
     // 1)  Create basic accounts
@@ -121,12 +121,7 @@ pub async fn setup_accounts_and_faucets(
             // Build & submit the mint transaction
             let asset = FungibleAsset::new(faucet.id(), amount).unwrap();
             let tx_request = TransactionRequestBuilder::new()
-                .build_mint_fungible_asset(
-                    asset,
-                    account.id(),
-                    NoteType::Public,
-                    client.rng(),
-                )
+                .build_mint_fungible_asset(asset, account.id(), NoteType::Public, client.rng())
                 .unwrap();
 
             let tx_id = client

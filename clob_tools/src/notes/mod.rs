@@ -124,3 +124,34 @@ pub fn create_option_contract_note<R: FeltRng>(
 
     Ok((note, p2id_note))
 }
+
+pub fn create_arbint_note(
+    sender: AccountId,
+    target: AccountId,
+    assets: Vec<Asset>,
+    note_type: NoteType,
+    aux: Felt,
+    serial_num: [Felt; 4],
+) -> Result<Note, NoteError> {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let path: PathBuf = [manifest_dir, "..", "masm", "notes", "ARBINT.masm"]
+        .iter()
+        .collect();
+
+    let note_code = fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
+
+    let note_script = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
+
+    let inputs = NoteInputs::new(vec![target.suffix(), target.prefix().into()])?;
+    let tag = NoteTag::from_account_id(target);
+
+    let metadata = NoteMetadata::new(sender, note_type, tag, NoteExecutionHint::always(), aux)?;
+    let vault = NoteAssets::new(assets)?;
+
+    let recipient = NoteRecipient::new(serial_num.into(), note_script, inputs.clone());
+
+    Ok(Note::new(vault, metadata, recipient))
+}
