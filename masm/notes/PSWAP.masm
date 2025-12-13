@@ -20,14 +20,14 @@ const.MAX_U32=0x0000000100000000
 # =================================================================================================
 
 # Memory Address Layout:
-# - SWAPP Note Inputs: General input addresses (0 - 0xD)
+# - PSWAP Note Inputs: General input addresses (0 - 0xD)
 # - Reserved Input Memory Addresses: 0 to 40 (not explicitly listed)
 # - Price Calculation Procedure: Addresses 41 to 60 (0x29 to 0x2D)
 # - TokenId Addresses: Addresses 60 to 70 (0x2D to 0x30)
 # - Boolean Addresses: Addresses 70 to 80 (0x35)
 # - Full Word Addresses: Addresses 80 to 120, must be divisible by 4 (0x50 to 0x64)
 
-# SWAPP Note Inputs (0 to 40)
+# PSWAP Note Inputs (0 to 40)
 const.REQUESTED_ASSET_WORD_INPUT = 0x0000
 const.REQUESTED_ASSET_INPUT_1 = 0x0001
 const.REQUESTED_ASSET_INPUT_2 = 0x0002
@@ -77,16 +77,16 @@ const.NEW_ASSET_A = 0x0078
 # =================================================================================================
 
 # SWAP script expects exactly 9 note inputs
-const.ERR_SWAP_WRONG_NUMBER_OF_INPUTS="SWAPP wrong number of inputs"
+const.ERR_SWAP_WRONG_NUMBER_OF_INPUTS="PSWAP wrong number of inputs"
 
 # SWAP script requires exactly one note asset
-const.ERR_SWAP_WRONG_NUMBER_OF_ASSETS="SWAPP wrong number of assets"
+const.ERR_SWAP_WRONG_NUMBER_OF_ASSETS="PSWAP wrong number of assets"
 
 # SWAP amount must not exceed 184467440694145
-const.ERR_INVALID_SWAP_AMOUNT="SWAPP invalid SWAP amount"
+const.ERR_INVALID_SWAP_AMOUNT="PSWAP invalid SWAP amount"
 
 # SWAPp amount must not be 0
-const.ERR_INVALID_SWAP_AMOUNT_ZERO="SWAPP zero SWAP amount"
+const.ERR_INVALID_SWAP_AMOUNT_ZERO="PSWAP zero SWAP amount"
 
 # PRICE CALCULATION
 # =================================================================================================

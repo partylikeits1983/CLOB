@@ -63,9 +63,9 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
     let faucet_b = faucets[1].clone();
 
     // -------------------------------------------------------------------------
-    // STEP 1: Create SWAPP note
+    // STEP 1: Create PSWAP note
     // -------------------------------------------------------------------------
-    println!("\n[STEP 3] Create SWAPP note");
+    println!("\n[STEP 3] Create PSWAP note");
 
     // offered asset amount
     let amount_a = 50;
@@ -107,13 +107,13 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
 
     let swapp_note_id = swapp_note.id();
 
-    // Time from after SWAPP creation
+    // Time from after PSWAP creation
     let start_time = Instant::now();
 
     let _ = get_swapp_note(&mut client, swapp_tag, swapp_note_id).await;
 
     // -------------------------------------------------------------------------
-    // STEP 2: Partial Consume SWAPP note
+    // STEP 2: Partial Consume PSWAP note
     // -------------------------------------------------------------------------
     let fill_amount_bob = 25;
     let (_amount_a_1, new_amount_a, new_amount_b) =
@@ -197,8 +197,8 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
 
     // Stop timing
     let duration = start_time.elapsed();
-    println!("SWAPP note partially filled");
-    println!("Time from SWAPP creation to partial fill: {:?}", duration);
+    println!("PSWAP note partially filled");
+    println!("Time from PSWAP creation to partial fill: {:?}", duration);
 
     Ok(())
 }
@@ -290,7 +290,7 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
         vec![swap_note_2_asset_b.into()], // asset to send
         NoteType::Public,
         Felt::new(0),
-        p2id_serial_num_1, // p2id serial number for SWAPP note
+        p2id_serial_num_1, // p2id serial number for PSWAP note
     )
     .unwrap();
 
@@ -468,7 +468,7 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
     .unwrap();
 
     // ────────────────────────────────────────────────────────────
-    // 4.  Wait until the two SWAPP notes are visible on-chain
+    // 4.  Wait until the two PSWAP notes are visible on-chain
     // ────────────────────────────────────────────────────────────
     let _ = get_swapp_note(&mut client, swap_note_1.metadata().tag(), swap_note_1.id()).await;
     let _ = get_swapp_note(&mut client, swap_note_2.metadata().tag(), swap_note_2.id()).await;
@@ -483,7 +483,7 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
     // ────────────────────────────────────────────────────────────
     // 6.  Build the single consume-transaction
     // ────────────────────────────────────────────────────────────
-    // Expected outputs = 2 P2ID notes (+ optional residual SWAPP note)
+    // Expected outputs = 2 P2ID notes (+ optional residual PSWAP note)
     let mut expected_outputs = vec![
         (
             NoteDetails::from(swap_data.p2id_from_1_to_2.clone()),
@@ -508,8 +508,8 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args.into())), // maker's SWAPP note
-            (swap_note_2.id(), Some(swap_data.note2_args.into())), // taker's SWAPP note
+            (swap_note_1.id(), Some(swap_data.note1_args.into())), // maker's PSWAP note
+            (swap_note_2.id(), Some(swap_data.note2_args.into())), // taker's PSWAP note
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
@@ -611,7 +611,7 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     .unwrap();
 
     // ────────────────────────────────────────────────────────────
-    // 4.  Wait until the two SWAPP notes are visible on-chain
+    // 4.  Wait until the two PSWAP notes are visible on-chain
     // ────────────────────────────────────────────────────────────
     let _ = get_swapp_note(&mut client, swap_note_1.metadata().tag(), swap_note_1.id()).await;
     let _ = get_swapp_note(&mut client, swap_note_2.metadata().tag(), swap_note_2.id()).await;
@@ -629,7 +629,7 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     // ────────────────────────────────────────────────────────────
     // 6.  Build the single consume-transaction
     // ────────────────────────────────────────────────────────────
-    // Expected outputs = 2 P2ID notes (+ optional residual SWAPP note)
+    // Expected outputs = 2 P2ID notes (+ optional residual PSWAP note)
     let mut expected_outputs: Vec<(NoteDetails, miden_client::note::NoteTag)> = vec![
         (
             NoteDetails::from(swap_data.p2id_from_1_to_2.clone()),
@@ -657,11 +657,11 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
             (
                 swap_data.swap_note_1.id(),
                 Some(swap_data.note1_args.into()),
-            ), // maker's SWAPP note
+            ), // maker's PSWAP note
             (
                 swap_data.swap_note_2.id(),
                 Some(swap_data.note2_args.into()),
-            ), // taker's SWAPP note
+            ), // taker's PSWAP note
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
@@ -734,9 +734,9 @@ async fn swap_note_reclaim_public_test() -> Result<(), ClientError> {
     let faucet_b = faucets[1].clone();
 
     // -------------------------------------------------------------------------
-    // STEP 1: Create SWAPP note
+    // STEP 1: Create PSWAP note
     // -------------------------------------------------------------------------
-    println!("\n[STEP 3] Create SWAPP note");
+    println!("\n[STEP 3] Create PSWAP note");
 
     // offered asset amount
     let amount_a = 50;
@@ -778,13 +778,13 @@ async fn swap_note_reclaim_public_test() -> Result<(), ClientError> {
 
     let swapp_note_id = swapp_note.id();
 
-    // Time from after SWAPP creation
+    // Time from after PSWAP creation
     let start_time = Instant::now();
 
     let _ = get_swapp_note(&mut client, swapp_tag, swapp_note_id).await;
 
     // -------------------------------------------------------------------------
-    // STEP 2: Reclaim SWAPP note
+    // STEP 2: Reclaim PSWAP note
     // -------------------------------------------------------------------------
 
     println!(
@@ -810,8 +810,8 @@ async fn swap_note_reclaim_public_test() -> Result<(), ClientError> {
 
     // Stop timing
     let duration = start_time.elapsed();
-    println!("SWAPP note partially filled");
-    println!("Time from SWAPP creation to partial fill: {:?}", duration);
+    println!("PSWAP note partially filled");
+    println!("Time from PSWAP creation to partial fill: {:?}", duration);
 
     Ok(())
 }
@@ -855,9 +855,9 @@ async fn partial_swap_chain_public_optimistic_benchmark() -> Result<(), ClientEr
     let faucet_b = faucets[1].clone();
 
     // -------------------------------------------------------------------------
-    // STEP 1: Alice creates a SWAPP note: 50 A → 50 B
+    // STEP 1: Alice creates a PSWAP note: 50 A → 50 B
     // -------------------------------------------------------------------------
-    println!("\n[STEP 3] Create SWAPP note for Alice: 50 A -> 50 B");
+    println!("\n[STEP 3] Create PSWAP note for Alice: 50 A -> 50 B");
 
     let amount_a = 50; // offered A
     let amount_b = 50; // requested B
@@ -897,7 +897,7 @@ async fn partial_swap_chain_public_optimistic_benchmark() -> Result<(), ClientEr
     // -------------------------------------------------------------------------
     // STEP 2: Bob partially consumes swapp_note (optimistically)
     // -------------------------------------------------------------------------
-    println!("\n[STEP 4] Bob partially fills SWAPP note with 25 B");
+    println!("\n[STEP 4] Bob partially fills PSWAP note with 25 B");
     let start_time_bob = Instant::now(); // measure Bob's fill time
 
     let fill_amount_bob: u64 = 25;
@@ -971,7 +971,7 @@ async fn partial_swap_chain_public_optimistic_benchmark() -> Result<(), ClientEr
     client.submit_transaction(tx_result).await?;
 
     let duration_bob = start_time_bob.elapsed();
-    println!("SWAPP note partially filled by Bob");
+    println!("PSWAP note partially filled by Bob");
     println!("Time for Bob’s partial fill: {duration_bob:?}");
 
     // -------------------------------------------------------------------------
@@ -1050,11 +1050,11 @@ async fn partial_swap_chain_public_optimistic_benchmark() -> Result<(), ClientEr
     client.submit_transaction(tx_result).await?;
 
     let duration_charlie = start_time_charlie.elapsed();
-    println!("SWAPP note partially filled by Charlie");
+    println!("PSWAP note partially filled by Charlie");
     println!("Time for Charlie’s partial fill: {duration_charlie:?}");
 
     println!(
-        "SWAPP note leftover after Charlie’s partial fill => A: {}, B: {}",
+        "PSWAP note leftover after Charlie’s partial fill => A: {}, B: {}",
         new_offered_asset_amount_1, new_requested_asset_amount_1
     );
     println!("Done with partial swap ephemeral chain test.");

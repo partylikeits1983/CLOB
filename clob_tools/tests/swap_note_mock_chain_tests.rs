@@ -42,7 +42,7 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
     let bob_account_id = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2.try_into().unwrap();
     let matcher_account_id = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap();
 
-    // SWAPP NOTE 1
+    // PSWAP NOTE 1
     let swap_note_1_asset_a: Asset =
         FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap(), 100)
             .unwrap()
@@ -62,7 +62,7 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
     )
     .unwrap();
 
-    // SWAPP NOTE 2
+    // PSWAP NOTE 2
     let swap_note_2_asset_a: Asset =
         FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap(), 100)
             .unwrap()
@@ -110,7 +110,7 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
     let bob_account_id = faucet_b;
     let matcher_account_id = faucet_a;
 
-    // SWAPP NOTE 1: Alice offers 10 B, wants 45290 A (high price per A)
+    // PSWAP NOTE 1: Alice offers 10 B, wants 45290 A (high price per A)
     let swap_note_1 = create_partial_swap_note(
         alice_account_id,
         alice_account_id,
@@ -121,7 +121,7 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
     )
     .unwrap();
 
-    // SWAPP NOTE 2: Bob offers 54360 A, wants 12 B (low price per A - better deal)
+    // PSWAP NOTE 2: Bob offers 54360 A, wants 12 B (low price per A - better deal)
     let swap_note_2 = create_partial_swap_note(
         bob_account_id,
         bob_account_id,
@@ -180,7 +180,7 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
     // Check leftover
     if let Some(ref leftover) = swap_data.leftover_swapp_note {
         let (offered, requested) = clob_tools::decompose_swapp_note(leftover).unwrap();
-        println!("Leftover SWAPP note:");
+        println!("Leftover PSWAP note:");
         println!(
             "  - Offers: {} of faucet {:?}",
             offered.amount(),
@@ -192,7 +192,7 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
             requested.faucet_id()
         );
     } else {
-        println!("No leftover SWAPP note (complete fill)");
+        println!("No leftover PSWAP note (complete fill)");
     }
 
     // There should be a leftover from Bob's order

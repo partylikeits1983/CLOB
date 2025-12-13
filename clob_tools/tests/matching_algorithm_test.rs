@@ -104,7 +104,7 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
         vec![swap_note_2_asset_b.into()], // asset to send
         NoteType::Public,
         Felt::new(0),
-        p2id_serial_num_1, // p2id serial number for SWAPP note
+        p2id_serial_num_1, // p2id serial number for PSWAP note
     )
     .unwrap();
 
