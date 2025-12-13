@@ -375,8 +375,14 @@ async fn execute_batch_blockchain_match_simplified(
 
     for (swap_data, _, _, _, _) in matches_batch {
         // Add input notes from this match (exactly like the test)
-        input_notes.push((swap_data.swap_note_1.clone(), Some(swap_data.note1_args)));
-        input_notes.push((swap_data.swap_note_2.clone(), Some(swap_data.note2_args)));
+        input_notes.push((
+            swap_data.swap_note_1.clone(),
+            Some(swap_data.note1_args.into()),
+        ));
+        input_notes.push((
+            swap_data.swap_note_2.clone(),
+            Some(swap_data.note2_args.into()),
+        ));
 
         // Add expected output notes from this match (exactly like the test)
         expected_outputs.push((
@@ -418,8 +424,8 @@ async fn execute_batch_blockchain_match_simplified(
         .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
 
     // Execute the transaction (exactly like the test)
-    let tx_result = client
-        .new_transaction(matcher_id, consume_req)
+    let tx_id = client
+        .submit_new_transaction(matcher_id, consume_req)
         .await
         .map_err(|e| {
             error!("🔍 Detailed batch transaction creation error: {:?}", e);
@@ -432,13 +438,6 @@ async fn execute_batch_blockchain_match_simplified(
             anyhow::anyhow!("Failed to create batch transaction: {:?}", e)
         })?;
 
-    // Submit the transaction (exactly like the test)
-    client
-        .submit_transaction(tx_result.clone())
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to submit batch transaction: {}", e))?;
-
-    let tx_id = tx_result.executed_transaction().id();
     let tx_id_hex = format!("{:?}", tx_id);
 
     info!(
@@ -619,8 +618,14 @@ async fn execute_blockchain_match_simplified(
     use miden_client::transaction::TransactionRequestBuilder;
     let consume_req = TransactionRequestBuilder::new()
         .unauthenticated_input_notes([
-            (swap_data.swap_note_1.clone(), Some(swap_data.note1_args)),
-            (swap_data.swap_note_2.clone(), Some(swap_data.note2_args)),
+            (
+                swap_data.swap_note_1.clone(),
+                Some(swap_data.note1_args.into()),
+            ),
+            (
+                swap_data.swap_note_2.clone(),
+                Some(swap_data.note2_args.into()),
+            ),
         ])
         .expected_future_notes(expected_outputs.clone())
         .expected_output_recipients(expected_output_recipients)
@@ -628,8 +633,8 @@ async fn execute_blockchain_match_simplified(
         .map_err(|e| anyhow::anyhow!("Failed to build transaction request: {}", e))?;
 
     // Execute the transaction exactly like the test
-    let tx_result = client
-        .new_transaction(matcher_id, consume_req)
+    let tx_id = client
+        .submit_new_transaction(matcher_id, consume_req)
         .await
         .map_err(|e| {
             error!("🔍 Detailed transaction creation error: {:?}", e);
@@ -642,10 +647,6 @@ async fn execute_blockchain_match_simplified(
             anyhow::anyhow!("Failed to create transaction: {:?}", e)
         })?;
 
-    // Submit the transaction exactly like the test
-    let _ = client.submit_transaction(tx_result.clone()).await;
-
-    let tx_id = tx_result.executed_transaction().id();
     let tx_id_hex = format!("{:?}", tx_id);
 
     info!(

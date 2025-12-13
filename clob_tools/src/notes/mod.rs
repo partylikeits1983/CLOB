@@ -5,11 +5,10 @@ use miden_client::{
     asset::Asset,
     crypto::FeltRng,
     note::{
-        Note, NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata, NoteRecipient, NoteScript,
-        NoteTag, NoteType,
+        Note, NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata, NoteRecipient, NoteTag,
+        NoteType,
     },
-    transaction::TransactionKernel,
-    Felt,
+    Felt, ScriptBuilder,
 };
 
 use miden_objects::NoteError;
@@ -30,9 +29,9 @@ pub fn create_p2id_note(
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
 
-    let assembler = TransactionKernel::assembler().with_debug_mode(true);
-
-    let note_script = NoteScript::compile(note_code, assembler).unwrap();
+    let note_script = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
 
     let inputs = NoteInputs::new(vec![target.suffix(), target.prefix().into()])?;
     let tag = NoteTag::from_account_id(target);
@@ -40,7 +39,7 @@ pub fn create_p2id_note(
     let metadata = NoteMetadata::new(sender, note_type, tag, NoteExecutionHint::always(), aux)?;
     let vault = NoteAssets::new(assets)?;
 
-    let recipient = NoteRecipient::new(serial_num, note_script, inputs.clone());
+    let recipient = NoteRecipient::new(serial_num.into(), note_script, inputs.clone());
 
     Ok(Note::new(vault, metadata, recipient))
 }
@@ -68,8 +67,9 @@ pub fn create_option_contract_note<R: FeltRng>(
 
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
-    let assembler = TransactionKernel::assembler().with_debug_mode(true);
-    let note_script = NoteScript::compile(note_code, assembler).unwrap();
+    let note_script = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
     let note_type = NoteType::Public;
 
     let payback_serial_num = rng.draw_word();
@@ -79,7 +79,7 @@ pub fn create_option_contract_note<R: FeltRng>(
         vec![requested_asset.into()],
         NoteType::Public,
         Felt::new(0),
-        payback_serial_num,
+        (*payback_serial_num).into(),
     )
     .unwrap();
 

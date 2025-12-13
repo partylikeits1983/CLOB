@@ -2,7 +2,7 @@
 
 use anyhow::{anyhow, Result};
 use dotenv::dotenv;
-use miden_objects::account::NetworkId;
+use miden_client::address::NetworkId;
 use rand::{rng, Rng};
 use reqwest;
 use serde::Deserialize;
@@ -23,6 +23,8 @@ use miden_client::{
     transaction::{OutputNote, TransactionRequestBuilder},
     Client,
 };
+use rand::rngs::StdRng;
+use std::sync::Arc;
 // use rand::{RngCore, rngs::StdRng};
 
 #[derive(Debug, Deserialize)]
@@ -59,7 +61,7 @@ impl Default for MarketMakerConfig {
 }
 
 struct MarketMaker {
-    client: Option<Client>,
+    client: Option<Client<FilesystemKeyStore<StdRng>>>,
     accounts: Vec<Account>,
     config: MarketMakerConfig,
     server_url: String,
@@ -96,7 +98,8 @@ impl MarketMaker {
             let mut client = instantiate_client(endpoint).await?;
             client.sync_state().await.unwrap();
 
-            let keystore = FilesystemKeyStore::new("./keystore".into())?;
+            let keystore_path = std::path::PathBuf::from("./keystore");
+            let keystore = Arc::new(FilesystemKeyStore::<StdRng>::new(keystore_path)?);
 
             // Setup accounts with balances for market making + matcher account
             let balances = vec![
@@ -109,7 +112,7 @@ impl MarketMaker {
 
             let (accounts, faucets) = setup_accounts_and_faucets(
                 &mut client,
-                keystore,
+                &keystore,
                 5, // 4 market maker accounts + 1 matcher account
                 2, // USDC and ETH faucets
                 balances,
@@ -371,7 +374,7 @@ impl MarketMaker {
             let last_filler_account = creator_account; // Same account initially
 
             let serial_num = if let Some(ref mut client) = self.client {
-                client.rng().draw_word()
+                *client.rng().draw_word()
             } else {
                 return Err(anyhow!(
                     "Client not available for generating random serial numbers"
@@ -397,8 +400,7 @@ impl MarketMaker {
                 let req = TransactionRequestBuilder::new()
                     .own_output_notes(vec![OutputNote::Full(swap_note.clone())])
                     .build()?;
-                let tx = client.new_transaction(creator_account, req).await?;
-                client.submit_transaction(tx).await?;
+                let _tx_id = client.submit_new_transaction(creator_account, req).await?;
 
                 info!(
                     "✅ Submitted BID transaction {}/{}: {:.4} ETH @ ${:.2}",
@@ -450,7 +452,7 @@ impl MarketMaker {
             let last_filler_account = creator_account; // Same account initially
 
             let serial_num = if let Some(ref mut client) = self.client {
-                client.rng().draw_word()
+                *client.rng().draw_word()
             } else {
                 return Err(anyhow!(
                     "Client not available for generating random serial numbers"
@@ -476,8 +478,7 @@ impl MarketMaker {
                 let req = TransactionRequestBuilder::new()
                     .own_output_notes(vec![OutputNote::Full(swap_note.clone())])
                     .build()?;
-                let tx = client.new_transaction(creator_account, req).await?;
-                client.submit_transaction(tx).await?;
+                let _tx_id = client.submit_new_transaction(creator_account, req).await?;
                 info!(
                     "✅ Submitted ASK transaction {}/{}: {:.4} ETH @ ${:.2}",
                     level + 1,

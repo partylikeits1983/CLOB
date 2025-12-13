@@ -6,10 +6,9 @@ use miden_client::{
     asset::{Asset, FungibleAsset},
     note::{
         build_swap_tag, Note, NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata,
-        NoteRecipient, NoteScript, NoteTag, NoteType,
+        NoteRecipient, NoteTag, NoteType,
     },
-    transaction::TransactionKernel,
-    Felt, Word,
+    Felt, ScriptBuilder, Word,
 };
 
 use miden_objects::{Hasher, NoteError};
@@ -23,15 +22,16 @@ pub fn create_partial_swap_note(
     swap_count: u64,
 ) -> Result<Note, NoteError> {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let path: PathBuf = [manifest_dir, "..", "masm", "notes", "SWAPP.masm"]
+    let path: PathBuf = [manifest_dir, "..", "masm", "notes", "PSWAP.masm"]
         .iter()
         .collect();
 
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
 
-    let assembler = TransactionKernel::assembler().with_debug_mode(true);
-    let note_script = NoteScript::compile(note_code, assembler).unwrap();
+    let note_script = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
     let note_type = NoteType::Public;
 
     let requested_asset_word: Word = requested_asset.into();
@@ -69,7 +69,7 @@ pub fn create_partial_swap_note(
     )?;
 
     let assets = NoteAssets::new(vec![offered_asset])?;
-    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
+    let recipient = NoteRecipient::new(swap_serial_num.into(), note_script.clone(), inputs.clone());
     let note = Note::new(assets.clone(), metadata, recipient.clone());
 
     Ok(note)
@@ -98,8 +98,9 @@ pub fn create_partial_swap_note_cancellable(
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
 
-    let assembler = TransactionKernel::assembler().with_debug_mode(true);
-    let note_script = NoteScript::compile(note_code, assembler).unwrap();
+    let note_script = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
     let note_type = NoteType::Public;
 
     let requested_asset_word: Word = requested_asset.into();
@@ -141,7 +142,7 @@ pub fn create_partial_swap_note_cancellable(
     )?;
 
     let assets = NoteAssets::new(vec![offered_asset])?;
-    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
+    let recipient = NoteRecipient::new(swap_serial_num.into(), note_script.clone(), inputs.clone());
     let note = Note::new(assets.clone(), metadata, recipient.clone());
 
     println!(
@@ -252,7 +253,7 @@ pub fn decompose_swapp_note(note: &Note) -> Result<(FungibleAsset, FungibleAsset
 
 /// Convenience: creator = first two field elements in the inputs after the
 /// requested asset word.
-/// (Exactly how SWAPP.masm constructs it.)
+/// (Exactly how PSWAP.masm constructs it.)
 pub fn creator_of(note: &Note) -> AccountId {
     let vals = note.inputs().values();
     let prefix = Felt::from(vals[12]);
@@ -276,11 +277,11 @@ pub fn get_p2id_serial_num(swap_serial_num: [Felt; 4], swap_count: u64) -> [Felt
 }
 
 /// Three notes are produced when the maker (‖note 1‖) is only *partially*
-/// filled; otherwise the SWAPP note is `None` and only the two P2ID notes
+/// filled; otherwise the PSWAP note is `None` and only the two P2ID notes
 /// are returned.
 
 /// Everything the matcher needs in order to build a single
-/// consume-transaction that crosses the two SWAPP orders.
+/// consume-transaction that crosses the two PSWAP orders.
 #[derive(Clone)]
 pub struct MatchedSwap {
     /// P2ID note that transfers the *base* asset
@@ -302,11 +303,11 @@ pub struct MatchedSwap {
     pub swap_note_2: Note,
 
     /// `note_args` that **must** be supplied when the matcher consumes
-    /// *maker*'s SWAPP note (`note1`).
+    /// *maker*'s PSWAP note (`note1`).
     pub note1_args: [Felt; 4],
 
     /// `note_args` that **must** be supplied when the matcher consumes
-    /// *taker*'s SWAPP note (`note2`).
+    /// *taker*'s PSWAP note (`note2`).
     pub note2_args: [Felt; 4],
 }
 
@@ -335,7 +336,7 @@ impl fmt::Debug for MatchedSwap {
                     req.amount(),
                     req.faucet_id()
                 ),
-                Err(_) => "<cannot decode swapp note>".into(),
+                Err(_) => "<cannot decode pswap note>".into(),
             }
         }
 
@@ -367,12 +368,12 @@ impl fmt::Debug for MatchedSwap {
         // ────────────────────────────────────────────────────────────────
         let p2id_1 = format!("[assets: {}]", assets_str(&self.p2id_from_1_to_2));
         let p2id_2 = format!("[assets: {}]", assets_str(&self.p2id_from_2_to_1));
-        let swapp = self.leftover_swapp_note.as_ref().map(swapp_str);
+        let pswap = self.leftover_swapp_note.as_ref().map(swapp_str);
 
         f.debug_struct("MatchedSwap")
             .field("p2id_from_1_to_2", &p2id_1)
             .field("p2id_from_2_to_1", &p2id_2)
-            .field("leftover_swapp_note", &swapp)
+            .field("leftover_swapp_note", &pswap)
             .finish()
     }
 }
@@ -437,8 +438,8 @@ pub fn try_match_swapp_notes(
         let note1_swap_cnt = note1_in.inputs().values()[8].as_int();
         let note2_swap_cnt = note2_in.inputs().values()[8].as_int();
 
-        let note1_p2id_serial_num = get_p2id_serial_num(note1_in.serial_num(), note1_swap_cnt + 1);
-        let note2_p2id_serial_num = get_p2id_serial_num(note2_in.serial_num(), note2_swap_cnt + 1);
+        let note1_p2id_serial_num = get_p2id_serial_num(*note1_in.serial_num(), note1_swap_cnt + 1);
+        let note2_p2id_serial_num = get_p2id_serial_num(*note2_in.serial_num(), note2_swap_cnt + 1);
 
         let p2id_from_1_to_2 = crate::notes::create_p2id_note(
             matcher,
@@ -545,8 +546,8 @@ pub fn try_match_swapp_notes(
     let maker_swap_cnt = maker_note.inputs().values()[8].as_int();
     let taker_swap_cnt = taker_note.inputs().values()[8].as_int();
 
-    let maker_p2id_serial_num = get_p2id_serial_num(maker_note.serial_num(), maker_swap_cnt + 1);
-    let taker_p2id_serial_num = get_p2id_serial_num(taker_note.serial_num(), taker_swap_cnt + 1);
+    let maker_p2id_serial_num = get_p2id_serial_num(*maker_note.serial_num(), maker_swap_cnt + 1);
+    let taker_p2id_serial_num = get_p2id_serial_num(*taker_note.serial_num(), taker_swap_cnt + 1);
 
     // Create P2ID notes for the matched amounts
     let p2id_to_maker = crate::notes::create_p2id_note(
@@ -592,7 +593,7 @@ pub fn try_match_swapp_notes(
     let is_complete_fill = new_maker_offer == 0 && new_maker_want == 0;
 
     let leftover_swapp_note = if !is_complete_fill {
-        // Create the leftover SWAPP note for the maker
+        // Create the leftover PSWAP note for the maker
         let mut sn = maker_note.serial_num();
         sn[3] = Felt::new(sn[3].as_int() + 1);
         let swap_cnt = maker_swap_cnt + 1;
@@ -607,7 +608,7 @@ pub fn try_match_swapp_notes(
                 FungibleAsset::new(maker_want.faucet_id(), new_maker_want)
                     .unwrap()
                     .into(),
-                sn,
+                *sn,
                 swap_cnt,
             )
             .unwrap(),
