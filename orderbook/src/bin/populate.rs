@@ -400,7 +400,7 @@ impl MarketMaker {
                 let req = TransactionRequestBuilder::new()
                     .own_output_notes(vec![OutputNote::Full(swap_note.clone())])
                     .build()?;
-                let tx_id = client.submit_new_transaction(creator_account, req).await?;
+                let _tx_id = client.submit_new_transaction(creator_account, req).await?;
 
                 info!(
                     "✅ Submitted BID transaction {}/{}: {:.4} ETH @ ${:.2}",
@@ -478,7 +478,7 @@ impl MarketMaker {
                 let req = TransactionRequestBuilder::new()
                     .own_output_notes(vec![OutputNote::Full(swap_note.clone())])
                     .build()?;
-                let tx_id = client.submit_new_transaction(creator_account, req).await?;
+                let _tx_id = client.submit_new_transaction(creator_account, req).await?;
                 info!(
                     "✅ Submitted ASK transaction {}/{}: {:.4} ETH @ ${:.2}",
                     level + 1,

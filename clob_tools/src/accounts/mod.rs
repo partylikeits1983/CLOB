@@ -1,6 +1,5 @@
 use rand::{rngs::StdRng, RngCore};
 use std::{env, sync::Arc};
-use tokio::time::{sleep, Duration};
 
 use miden_client::{
     account::{
@@ -11,9 +10,8 @@ use miden_client::{
     auth::AuthSecretKey,
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
-    note::{Note, NoteType},
+    note::{NoteType},
     rpc::GrpcClient,
-    store::InputNoteRecord,
     transaction::TransactionRequestBuilder,
     Client, ClientError, Felt, Word,
 };

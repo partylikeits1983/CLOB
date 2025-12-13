@@ -1,4 +1,4 @@
-use miden_lib::account::auth::{self, AuthRpoFalcon512};
+use miden_lib::account::auth::AuthRpoFalcon512;
 use rand::{rngs::StdRng, RngCore};
 use std::sync::Arc;
 use tokio::time::Duration;
@@ -133,7 +133,7 @@ async fn main() -> Result<(), ClientError> {
 
         println!("tx request built");
 
-        let tx_id = client
+        let _tx_id = client
             .submit_new_transaction(faucet_account.id(), transaction_request)
             .await?;
         println!("Minted note #{} of {} tokens for Alice.", i, amount);
@@ -163,7 +163,7 @@ async fn main() -> Result<(), ClientError> {
             let transaction_request = TransactionRequestBuilder::new()
                 .build_consume_notes(list_of_note_ids)
                 .unwrap();
-            let tx_id = client
+            let _tx_id = client
                 .submit_new_transaction(alice_account.id(), transaction_request)
                 .await?;
             println!("All of Alice's notes consumed successfully.");
@@ -221,7 +221,7 @@ async fn main() -> Result<(), ClientError> {
         .build()
         .unwrap();
 
-    let tx_id = client
+    let _tx_id = client
         .submit_new_transaction(alice_account.id(), transaction_request)
         .await?;
     println!("Submitted a transaction with 4 P2ID notes.");
@@ -255,7 +255,7 @@ async fn main() -> Result<(), ClientError> {
             client.rng(),     // rng
         )
         .unwrap();
-    let tx_id = client
+    let _ = client
         .submit_new_transaction(alice_account.id(), transaction_request)
         .await?;
 
