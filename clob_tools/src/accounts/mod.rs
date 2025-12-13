@@ -1,5 +1,6 @@
 use rand::{rngs::StdRng, RngCore};
 use std::{env, sync::Arc};
+use tokio::time::{sleep, Duration};
 
 use miden_client::{
     account::{
@@ -10,7 +11,9 @@ use miden_client::{
     auth::AuthSecretKey,
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
+    note::{Note, NoteType},
     rpc::GrpcClient,
+    store::InputNoteRecord,
     transaction::TransactionRequestBuilder,
     Client, ClientError, Felt, Word,
 };
@@ -80,6 +83,8 @@ pub async fn setup_accounts_and_faucets(
     num_faucets: usize,
     balances: Vec<Vec<u64>>,
 ) -> Result<(Vec<Account>, Vec<Account>), ClientError> {
+    use crate::client::{wait_for_notes};
+
     // ---------------------------------------------------------------------
     // 1)  Create basic accounts
     // ---------------------------------------------------------------------
@@ -104,11 +109,8 @@ pub async fn setup_accounts_and_faucets(
     client.sync_state().await?;
 
     // ---------------------------------------------------------------------
-    // 3)  Mint tokens
+    // 3)  Mint tokens and wait for each note before consuming
     // ---------------------------------------------------------------------
-    // `minted_notes[i]` collects the notes minted **for** `accounts[i]`
-    let _minted_notes: Vec<Vec<miden_client::note::Note>> = vec![Vec::new(); num_accounts];
-
     for (acct_idx, account) in accounts.iter().enumerate() {
         for (faucet_idx, faucet) in faucets.iter().enumerate() {
             let amount = balances[acct_idx][faucet_idx];
@@ -124,7 +126,7 @@ pub async fn setup_accounts_and_faucets(
                 .build_mint_fungible_asset(
                     asset,
                     account.id(),
-                    miden_client::note::NoteType::Public,
+                    NoteType::Public,
                     client.rng(),
                 )
                 .unwrap();
@@ -133,27 +135,26 @@ pub async fn setup_accounts_and_faucets(
                 .submit_new_transaction(faucet.id(), tx_request)
                 .await?;
             println!("Minted tokens. TX: {:?}", tx_id);
+
+            // Wait for the minted note to be available
+            wait_for_notes(client, account, 1).await?;
+
+            // Get and consume the minted note
+            let consumable_notes = client.get_consumable_notes(Some(account.id())).await?;
+            if let Some((note_record, _)) = consumable_notes.first() {
+                let consume_req = TransactionRequestBuilder::new()
+                    .build_consume_notes(vec![note_record.id()])
+                    .unwrap();
+
+                let tx_id = client
+                    .submit_new_transaction(account.id(), consume_req)
+                    .await?;
+                println!("Consumed note. TX: {:?}", tx_id);
+            }
         }
     }
 
-    // Wait for notes and consume them
     client.sync_state().await?;
-
-    for account in &accounts {
-        let consumable_notes = client.get_consumable_notes(Some(account.id())).await?;
-        for (note_record, _) in consumable_notes {
-            let consume_req = TransactionRequestBuilder::new()
-                .build_consume_notes(vec![note_record.id()])
-                .unwrap();
-
-            let tx_id = client
-                .submit_new_transaction(account.id(), consume_req)
-                .await?;
-            println!("Consumed note. TX: {:?}", tx_id);
-        }
-    }
-    client.sync_state().await?;
-
     Ok((accounts, faucets))
 }
 

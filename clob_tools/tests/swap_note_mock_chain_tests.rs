@@ -1,12 +1,10 @@
 use clob_tools::{create_partial_swap_note, try_match_swapp_notes};
 use miden_client::{
-    account::AccountId,
     asset::{Asset, FungibleAsset},
     note::NoteType,
     testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1,
     Felt, Word,
 };
-use miden_testing::MockChain;
 
 use miden_objects::testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2;
 
@@ -104,8 +102,8 @@ async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
     let faucet_b = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2.try_into().unwrap();
 
     // Initialize assets for the matcher account (needs enough to cover both sides)
-    let asset_a_matcher: Asset = FungibleAsset::new(faucet_a, 100000000000).unwrap().into();
-    let asset_b_matcher: Asset = FungibleAsset::new(faucet_b, 100000000000).unwrap().into();
+    let _asset_a_matcher: Asset = FungibleAsset::new(faucet_a, 100000000000).unwrap().into();
+    let _asset_b_matcher: Asset = FungibleAsset::new(faucet_b, 100000000000).unwrap().into();
 
     // Create account IDs
     let alice_account_id = faucet_a;
