@@ -41,7 +41,6 @@ async fn main() -> Result<(), ClientError> {
     let sync_summary = client.sync_state().await.unwrap();
     println!("Latest block: {}", sync_summary.block_num);
 
-
     //------------------------------------------------------------
     // STEP 1: Create a basic wallet for Alice
     //------------------------------------------------------------

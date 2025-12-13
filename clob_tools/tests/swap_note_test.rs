@@ -6,7 +6,7 @@ use miden_client::{
     crypto::FeltRng,
     keystore::FilesystemKeyStore,
     note::NoteType,
-    rpc::{Endpoint, TonicRpcClient},
+    rpc::{Endpoint, GrpcClient},
     transaction::{OutputNote, TransactionRequestBuilder},
     ClientError, Felt,
 };
@@ -15,13 +15,11 @@ use miden_objects::note::NoteDetails;
 use std::sync::Arc;
 
 use clob_tools::{
-    common::{
-        compute_partial_swapp, create_order, create_p2id_note, create_partial_swap_note,
-        delete_keystore_and_store, get_p2id_serial_num, get_swapp_note, instantiate_client,
-        setup_accounts_and_faucets, try_match_swapp_notes, wait_for_note,
-    },
-    create_order_simple,
+    compute_partial_swapp, create_order, create_order_simple, create_p2id_note,
+    create_partial_swap_note, delete_keystore_and_store, get_p2id_serial_num, get_swapp_note,
+    instantiate_client, setup_accounts_and_faucets, try_match_swapp_notes, wait_for_note,
 };
+use miden_client_sqlite_store::ClientBuilderSqliteExt;
 
 #[tokio::test]
 async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
@@ -32,26 +30,31 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
     let endpoint = Endpoint::testnet();
 
     let timeout_ms = 10_000;
-    let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
+    let rpc_api = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
+
+    let keystore_path = std::path::PathBuf::from("./keystore");
+    let keystore = Arc::new(FilesystemKeyStore::new(keystore_path).unwrap());
+    let store_path = std::path::PathBuf::from("./store.sqlite3");
 
     let mut client = ClientBuilder::new()
         .rpc(rpc_api)
-        .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
+        .sqlite_store(store_path)
+        .authenticator(keystore.clone())
+        .in_debug_mode(true.into())
         .build()
         .await?;
 
     let sync_summary = client.sync_state().await.unwrap();
     println!("Latest block: {}", sync_summary.block_num);
 
-    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+    let keystore = keystore;
 
     let balances = vec![
         vec![100, 0], // For account[0] => Alice
         vec![0, 100], // For account[1] => Bob
     ];
     let (accounts, faucets) =
-        setup_accounts_and_faucets(&mut client, keystore, 2, 2, balances).await?;
+        setup_accounts_and_faucets(&mut client, &keystore, 2, 2, balances).await?;
 
     // rename for clarity
     let alice_account = accounts[0].clone();
@@ -72,7 +75,7 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
     let amount_b = 50;
     let asset_b = FungibleAsset::new(faucet_b.id(), amount_b).unwrap();
 
-    let swap_serial_num = client.rng().draw_word();
+    let swap_serial_num = *client.rng().draw_word();
     let swap_count = 0;
 
     let swapp_note = create_partial_swap_note(
@@ -91,17 +94,15 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
         .own_output_notes(vec![OutputNote::Full(swapp_note.clone())])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(alice_account.id(), note_req)
+    let tx_id = client
+        .submit_new_transaction(alice_account.id(), note_req)
         .await
         .unwrap();
 
     println!(
         "View transaction on MidenScan: https://testnet.midenscan.com/tx/{:?}",
-        tx_result.executed_transaction().id()
+        tx_id
     );
-
-    let _ = client.submit_transaction(tx_result).await;
     client.sync_state().await?;
 
     let swapp_note_id = swapp_note.id();
@@ -166,7 +167,7 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
     ];
 
     let consume_custom_req = TransactionRequestBuilder::new()
-        .authenticated_input_notes([(swapp_note.id(), Some(consume_amount_note_args))])
+        .authenticated_input_notes([(swapp_note.id(), Some(consume_amount_note_args.into()))])
         .expected_future_notes(vec![
             (
                 NoteDetails::from(p2id_note.clone()),
@@ -184,18 +185,15 @@ async fn swap_note_partial_consume_public_test() -> Result<(), ClientError> {
         .build()
         .unwrap();
 
-    let tx_result = client
-        .new_transaction(bob_account.id(), consume_custom_req)
+    let tx_id = client
+        .submit_new_transaction(bob_account.id(), consume_custom_req)
         .await
         .unwrap();
 
     println!(
         "Consumed Note Tx on MidenScan: https://testnet.midenscan.com/tx/{:?}",
-        tx_result.executed_transaction().id()
+        tx_id
     );
-    println!("account delta: {:?}", tx_result.account_delta().vault());
-
-    let _ = client.submit_transaction(tx_result).await;
 
     // Stop timing
     let duration = start_time.elapsed();
@@ -211,7 +209,7 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
 
     let endpoint = Endpoint::localhost();
     let mut client = instantiate_client(endpoint).await?;
-    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+    let keystore = std::sync::Arc::new(FilesystemKeyStore::new("./keystore".into()).unwrap());
 
     let sync_summary = client.sync_state().await.unwrap();
     println!("Latest block: {}", sync_summary.block_num);
@@ -226,7 +224,7 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
         vec![100, 100], // For account[0] => matcher
     ];
     let (accounts, faucets) =
-        setup_accounts_and_faucets(&mut client, keystore, 3, 2, balances).await?;
+        setup_accounts_and_faucets(&mut client, &keystore, 3, 2, balances).await?;
 
     // rename for clarity
     let alice_account = accounts[0].clone();
@@ -240,7 +238,7 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
     // -------------------------------------------------------------------------
     let swap_note_1_asset_a = FungibleAsset::new(faucet_a.id(), 100).unwrap();
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
-    let swap_note_1_serial_num = client.rng().draw_word();
+    let swap_note_1_serial_num = *client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
         alice_account.id(),         // creator of the order
         alice_account.id(),         // last account to "fill the order"
@@ -253,7 +251,7 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
 
     let swap_note_2_asset_a = FungibleAsset::new(faucet_a.id(), 50).unwrap();
     let swap_note_2_asset_b = FungibleAsset::new(faucet_b.id(), 50).unwrap();
-    let swap_note_2_serial_num = client.rng().draw_word();
+    let swap_note_2_serial_num = *client.rng().draw_word();
     let swap_note_2 = create_partial_swap_note(
         bob_account.id(),
         bob_account.id(),
@@ -268,26 +266,24 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
         .own_output_notes(vec![OutputNote::Full(swap_note_1.clone())])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(alice_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(alice_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     let note_creation_request = TransactionRequestBuilder::new()
         .own_output_notes(vec![OutputNote::Full(swap_note_2.clone())])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(bob_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(bob_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     // -------------------------------------------------------------------------
     // STEP 3: Computing output notes if SWAP notes are matched
     // -------------------------------------------------------------------------
-    let p2id_serial_num_1 = get_p2id_serial_num(swap_note_1.serial_num(), 1);
+    let p2id_serial_num_1 = get_p2id_serial_num(*swap_note_1.serial_num(), 1);
     let p2id_1 = create_p2id_note(
         matcher_account.id(),             // sender
         alice_account.id(),               // account id to receive the asset
@@ -298,7 +294,7 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
     )
     .unwrap();
 
-    let p2id_serial_num_2 = get_p2id_serial_num(swap_note_2.serial_num(), 1);
+    let p2id_serial_num_2 = get_p2id_serial_num(*swap_note_2.serial_num(), 1);
     let p2id_2 = create_p2id_note(
         matcher_account.id(),
         bob_account.id(),
@@ -364,8 +360,8 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
     // Combined Transaction
     let consume_custom_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_note_1_note_args)), // note that isn't filled compltely
-            (swap_note_2.id(), Some(swap_note_2_note_args)), // note that is filled completely
+            (swap_note_1.id(), Some(swap_note_1_note_args.into())), // note that isn't filled compltely
+            (swap_note_2.id(), Some(swap_note_2_note_args.into())), // note that is filled completely
         ])
         .expected_future_notes(vec![
             (NoteDetails::from(p2id_1.clone()), p2id_1.metadata().tag()),
@@ -375,12 +371,10 @@ async fn fill_counter_party_swap_notes() -> Result<(), ClientError> {
         .build()
         .unwrap();
 
-    let tx_result = client
-        .new_transaction(matcher_account.id(), consume_custom_req)
+    let _tx_id = client
+        .submit_new_transaction(matcher_account.id(), consume_custom_req)
         .await
         .unwrap();
-
-    let _ = client.submit_transaction(tx_result).await;
 
     client.sync_state().await.unwrap();
 
@@ -409,12 +403,16 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
 
     let endpoint = Endpoint::localhost();
     let timeout_ms = 10_000;
-    let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
+    let rpc_api = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
+    let keystore_path = std::path::PathBuf::from("./keystore");
+    let keystore = Arc::new(FilesystemKeyStore::new(keystore_path).unwrap());
+    let store_path = std::path::PathBuf::from("./store.sqlite3");
 
     let mut client = ClientBuilder::new()
         .rpc(rpc_api)
-        .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
+        .sqlite_store(store_path)
+        .authenticator(keystore.clone())
+        .in_debug_mode(true.into())
         .build()
         .await?;
 
@@ -424,7 +422,7 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
     // ────────────────────────────────────────────────────────────
     // 1.  Provision three accounts + two test faucets
     // ────────────────────────────────────────────────────────────
-    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+    let keystore = keystore;
 
     let balances = vec![
         vec![100, 100],       // trader-1
@@ -432,7 +430,7 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
         vec![10_000, 10_000], // matcher
     ];
     let (accounts, faucets) =
-        setup_accounts_and_faucets(&mut client, keystore, 3, 2, balances).await?;
+        setup_accounts_and_faucets(&mut client, &keystore, 3, 2, balances).await?;
 
     let trader_1 = accounts[0].clone();
     let trader_2 = accounts[1].clone();
@@ -497,7 +495,7 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
         ),
     ];
     if let Some(ref note) = swap_data.leftover_swapp_note {
-        expected_outputs.push((NoteDetails::from(note.clone()), note.metadata().tag()))
+        expected_outputs.push((NoteDetails::from(note.clone()), note.metadata().tag()));
     }
 
     let mut expected_output_recipients = vec![
@@ -510,8 +508,8 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args)), // maker's SWAPP note
-            (swap_note_2.id(), Some(swap_data.note2_args)), // taker's SWAPP note
+            (swap_note_1.id(), Some(swap_data.note1_args.into())), // maker's SWAPP note
+            (swap_note_2.id(), Some(swap_data.note2_args.into())), // taker's SWAPP note
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
@@ -521,11 +519,10 @@ async fn swap_note_partial_consume_public_test_matched() -> Result<(), ClientErr
     // ────────────────────────────────────────────────────────────
     // 7.  Submit and confirm
     // ────────────────────────────────────────────────────────────
-    let tx = client
-        .new_transaction(matcher.id(), consume_req)
+    let _tx_id = client
+        .submit_new_transaction(matcher.id(), consume_req)
         .await
         .unwrap();
-    client.submit_transaction(tx).await.unwrap();
     client.sync_state().await.unwrap();
 
     // (optional) quick sanity print of post-trade balances
@@ -549,12 +546,16 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
 
     let endpoint = Endpoint::localhost();
     let timeout_ms = 10_000;
-    let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
+    let rpc_api = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
+    let keystore_path = std::path::PathBuf::from("./keystore");
+    let keystore = Arc::new(FilesystemKeyStore::new(keystore_path).unwrap());
+    let store_path = std::path::PathBuf::from("./store.sqlite3");
 
     let mut client = ClientBuilder::new()
         .rpc(rpc_api)
-        .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
+        .sqlite_store(store_path)
+        .authenticator(keystore.clone())
+        .in_debug_mode(true.into())
         .build()
         .await?;
 
@@ -564,7 +565,7 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     // ────────────────────────────────────────────────────────────
     // 1.  Provision three accounts + two test faucets
     // ────────────────────────────────────────────────────────────
-    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+    let keystore = keystore;
 
     let balances = vec![
         vec![100_000_000, 100_000_000], // trader-1
@@ -572,7 +573,7 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
         vec![100_000_000, 100_000_000], // matcher
     ];
     let (accounts, faucets) =
-        setup_accounts_and_faucets(&mut client, keystore, 3, 2, balances).await?;
+        setup_accounts_and_faucets(&mut client, &keystore, 3, 2, balances).await?;
 
     let trader_1 = accounts[0].clone();
     let trader_2 = accounts[1].clone();
@@ -653,8 +654,14 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_data.swap_note_1.id(), Some(swap_data.note1_args)), // maker's SWAPP note
-            (swap_data.swap_note_2.id(), Some(swap_data.note2_args)), // taker's SWAPP note
+            (
+                swap_data.swap_note_1.id(),
+                Some(swap_data.note1_args.into()),
+            ), // maker's SWAPP note
+            (
+                swap_data.swap_note_2.id(),
+                Some(swap_data.note2_args.into()),
+            ), // taker's SWAPP note
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
@@ -664,11 +671,10 @@ async fn swap_note_edge_case_test() -> Result<(), ClientError> {
     // ────────────────────────────────────────────────────────────
     // 7.  Submit and confirm
     // ────────────────────────────────────────────────────────────
-    let tx = client
-        .new_transaction(matcher.id(), consume_req)
+    let _tx_id = client
+        .submit_new_transaction(matcher.id(), consume_req)
         .await
         .unwrap();
-    client.submit_transaction(tx).await.unwrap();
     client.sync_state().await.unwrap();
 
     // (optional) quick sanity print of post-trade balances
@@ -697,26 +703,30 @@ async fn swap_note_reclaim_public_test() -> Result<(), ClientError> {
     let endpoint = Endpoint::localhost();
 
     let timeout_ms = 10_000;
-    let rpc_api = Arc::new(TonicRpcClient::new(&endpoint, timeout_ms));
+    let rpc_api = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
+    let keystore_path = std::path::PathBuf::from("./keystore");
+    let keystore = Arc::new(FilesystemKeyStore::new(keystore_path).unwrap());
+    let store_path = std::path::PathBuf::from("./store.sqlite3");
 
     let mut client = ClientBuilder::new()
         .rpc(rpc_api)
-        .filesystem_keystore("./keystore")
-        .in_debug_mode(true)
+        .sqlite_store(store_path)
+        .authenticator(keystore.clone())
+        .in_debug_mode(true.into())
         .build()
         .await?;
 
     let sync_summary = client.sync_state().await.unwrap();
     println!("Latest block: {}", sync_summary.block_num);
 
-    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+    let keystore = keystore;
 
     let balances = vec![
         vec![100, 0], // For account[0] => Alice
         vec![0, 100], // For account[1] => Bob
     ];
     let (accounts, faucets) =
-        setup_accounts_and_faucets(&mut client, keystore, 2, 2, balances).await?;
+        setup_accounts_and_faucets(&mut client, &keystore, 2, 2, balances).await?;
 
     // rename for clarity
     let alice_account = accounts[0].clone();
@@ -736,7 +746,7 @@ async fn swap_note_reclaim_public_test() -> Result<(), ClientError> {
     let amount_b = 50;
     let asset_b = FungibleAsset::new(faucet_b.id(), amount_b).unwrap();
 
-    let swap_serial_num = client.rng().draw_word();
+    let swap_serial_num = *client.rng().draw_word();
     let swap_count = 0;
 
     let swapp_note = create_partial_swap_note(
@@ -755,17 +765,15 @@ async fn swap_note_reclaim_public_test() -> Result<(), ClientError> {
         .own_output_notes(vec![OutputNote::Full(swapp_note.clone())])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(alice_account.id(), note_req)
+    let tx_id = client
+        .submit_new_transaction(alice_account.id(), note_req)
         .await
         .unwrap();
 
     println!(
         "View transaction on MidenScan: https://testnet.midenscan.com/tx/{:?}",
-        tx_result.executed_transaction().id()
+        tx_id
     );
-
-    let _ = client.submit_transaction(tx_result).await;
     client.sync_state().await?;
 
     let swapp_note_id = swapp_note.id();
@@ -790,18 +798,15 @@ async fn swap_note_reclaim_public_test() -> Result<(), ClientError> {
         .build()
         .unwrap();
 
-    let tx_result = client
-        .new_transaction(alice_account.id(), consume_custom_req)
+    let tx_id = client
+        .submit_new_transaction(alice_account.id(), consume_custom_req)
         .await
         .unwrap();
 
     println!(
         "Consumed Note Tx on MidenScan: https://testnet.midenscan.com/tx/{:?}",
-        tx_result.executed_transaction().id()
+        tx_id
     );
-    println!("account delta: {:?}", tx_result.account_delta().vault());
-
-    let _ = client.submit_transaction(tx_result).await;
 
     // Stop timing
     let duration = start_time.elapsed();

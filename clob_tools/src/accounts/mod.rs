@@ -49,11 +49,11 @@ pub async fn create_basic_faucet(
 ) -> Result<Account, ClientError> {
     let mut init_seed = [0u8; 32];
     client.rng().fill_bytes(&mut init_seed);
-    
+
     let key_pair = AuthSecretKey::new_rpo_falcon512();
     let symbol = TokenSymbol::new("MID").unwrap();
     let decimals = 8;
-    let max_supply = Felt::new(1_000_000);
+    let max_supply = Felt::new(100_000_000_000);
 
     let account = AccountBuilder::new(init_seed)
         .account_type(AccountType::FungibleFaucet)
@@ -65,7 +65,7 @@ pub async fn create_basic_faucet(
 
     client.add_account(&account, false).await?;
     keystore.add_key(&key_pair).unwrap();
-    
+
     Ok(account)
 }
 
@@ -129,14 +129,16 @@ pub async fn setup_accounts_and_faucets(
                 )
                 .unwrap();
 
-            let tx_id = client.submit_new_transaction(faucet.id(), tx_request).await?;
+            let tx_id = client
+                .submit_new_transaction(faucet.id(), tx_request)
+                .await?;
             println!("Minted tokens. TX: {:?}", tx_id);
         }
     }
 
     // Wait for notes and consume them
     client.sync_state().await?;
-    
+
     for account in &accounts {
         let consumable_notes = client.get_consumable_notes(Some(account.id())).await?;
         for (note_record, _) in consumable_notes {
@@ -144,7 +146,9 @@ pub async fn setup_accounts_and_faucets(
                 .build_consume_notes(vec![note_record.id()])
                 .unwrap();
 
-            let tx_id = client.submit_new_transaction(account.id(), consume_req).await?;
+            let tx_id = client
+                .submit_new_transaction(account.id(), consume_req)
+                .await?;
             println!("Consumed note. TX: {:?}", tx_id);
         }
     }
@@ -163,12 +167,9 @@ pub async fn create_public_immutable_contract(
     let counter_component = AccountComponent::compile(
         account_code.clone(),
         assembler.clone(),
-        vec![StorageSlot::Value([
-            Felt::new(0),
-            Felt::new(0),
-            Felt::new(0),
-            Felt::new(0),
-        ].into())],
+        vec![StorageSlot::Value(
+            [Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)].into(),
+        )],
     )
     .unwrap()
     .with_supports_all_types();
@@ -181,7 +182,7 @@ pub async fn create_public_immutable_contract(
     let rpc_api = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
     let keystore_path = std::path::PathBuf::from("./keystore");
     let keystore = Arc::new(FilesystemKeyStore::<StdRng>::new(keystore_path).unwrap());
-    
+
     let mut client = ClientBuilder::new()
         .rpc(rpc_api.clone())
         .authenticator(keystore.clone())

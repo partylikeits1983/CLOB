@@ -2,7 +2,8 @@ use clob_tools::{
     compute_partial_swapp, create_order_simple_testing, create_partial_swap_note,
     decompose_swapp_note, price_to_swap_note, try_match_swapp_notes,
 };
-use miden_client::{account::AccountId, asset::FungibleAsset, Word};
+use miden_client::{account::AccountId, asset::FungibleAsset, Felt};
+use miden_crypto::FieldElement;
 
 #[test]
 #[ignore]
@@ -27,7 +28,7 @@ fn test_try_match_swapp_notes_arithmetic() {
         note1_creator,
         FungibleAsset::new(faucet_b, 10).unwrap().into(), // offered
         FungibleAsset::new(faucet_a, 45290).unwrap().into(), // wanted
-        Word::default(),
+        [Felt::ZERO; 4],
         0,
     )
     .unwrap();
@@ -38,7 +39,7 @@ fn test_try_match_swapp_notes_arithmetic() {
         note2_creator,
         FungibleAsset::new(faucet_a, 54360).unwrap().into(), // offered
         FungibleAsset::new(faucet_b, 12).unwrap().into(),    // wanted
-        Word::default(),
+        [Felt::ZERO; 4],
         0,
     )
     .unwrap();
@@ -136,7 +137,7 @@ fn test_try_match_swapp_notes_arithmetic_case2() {
         maker_id,
         FungibleAsset::new(faucet_a, 150).unwrap().into(), // offered
         FungibleAsset::new(faucet_b, 90).unwrap().into(),  // wanted
-        Word::default(),
+        [Felt::ZERO; 4],
         0,
     )
     .unwrap();
@@ -147,7 +148,7 @@ fn test_try_match_swapp_notes_arithmetic_case2() {
         taker_id,
         FungibleAsset::new(faucet_b, 60).unwrap().into(), // offered
         FungibleAsset::new(faucet_a, 50).unwrap().into(), // wanted
-        Word::default(),
+        [Felt::ZERO; 4],
         0,
     )
     .unwrap();
@@ -211,7 +212,7 @@ fn test_try_match_swapp_notes_arithmetic_case3() {
         maker_id,
         FungibleAsset::new(faucet_a, 1815515).unwrap().into(), // offered
         FungibleAsset::new(faucet_b, 689).unwrap().into(),     // wanted
-        Word::default(),
+        [Felt::ZERO; 4],
         0,
     )
     .unwrap();
@@ -221,7 +222,7 @@ fn test_try_match_swapp_notes_arithmetic_case3() {
         taker_id,
         FungibleAsset::new(faucet_b, 352).unwrap().into(), // offered
         FungibleAsset::new(faucet_a, 912736).unwrap().into(), // wanted
-        Word::default(),
+        [Felt::ZERO; 4],
         0,
     )
     .unwrap();
@@ -341,7 +342,7 @@ fn test_try_match_swapp_notes_arithmetic_case4() {
         maker_id,
         FungibleAsset::new(faucet_a, 600).unwrap().into(), // offered
         FungibleAsset::new(faucet_b, 1455600).unwrap().into(), // wanted
-        Word::default(),
+        [Felt::ZERO; 4],
         0,
     )
     .unwrap();
@@ -352,7 +353,7 @@ fn test_try_match_swapp_notes_arithmetic_case4() {
         taker_id,
         FungibleAsset::new(faucet_b, 173737).unwrap().into(), // offered
         FungibleAsset::new(faucet_a, 71).unwrap().into(),     // wanted
-        Word::default(),
+        [Felt::ZERO; 4],
         0,
     )
     .unwrap();
@@ -405,7 +406,7 @@ fn test_create_partial_swap_note_with_different_amounts() {
         maker_id,
         FungibleAsset::new(faucet_a, 100).unwrap().into(), // offered
         FungibleAsset::new(faucet_b, 80).unwrap().into(),  // wanted
-        Word::default(),
+        [Felt::ZERO; 4],
         0,
     )
     .unwrap();
@@ -436,7 +437,7 @@ fn test_price_to_swap_note_match() {
         2,
         &faucet_a,
         &faucet_b,
-        Word::default(),
+        [Felt::ZERO; 4],
     );
     let swap_note_2 = price_to_swap_note(
         trader_2,
@@ -446,7 +447,7 @@ fn test_price_to_swap_note_match() {
         1,
         &faucet_a,
         &faucet_b,
-        Word::default(),
+        [Felt::ZERO; 4],
     );
 
     let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher_id).unwrap();

@@ -1,7 +1,9 @@
+use.miden::active_note
+use.miden::output_note
 use.miden::note
 use.miden::contracts::wallets::basic->wallet
 use.std::sys
-use.miden::account
+use.miden::active_account
 use.std::math::u64
 use.miden::tx
 use.std::crypto::hashes::rpo
@@ -234,7 +236,7 @@ end
 # input: []
 # output: [get_serial_number + 1]
 proc.get_new_swap_serial_num
-    exec.note::get_serial_number
+    exec.active_note::get_serial_number
     push.1
     add
 end
@@ -245,10 +247,10 @@ end
 #! Outputs: [is_creator]
 #!
 proc.is_consumer_is_creator
-    push.0 exec.note::get_inputs drop drop
+    push.0 exec.active_note::get_inputs drop drop
     # => []
 
-    exec.account::get_id
+    exec.active_account::get_id
     # => [acct_id_prefix, acct_id_suffix]
 
     mem_load.SWAPP_CREATOR_SUFFIX_INPUT mem_load.SWAPP_CREATOR_PREFIX_INPUT
@@ -276,7 +278,7 @@ end
 #! Outputs: []
 #!
 proc.handle_reclaim
-    push.0 exec.note::get_assets
+    push.0 exec.active_note::get_assets
 
     mem_loadw_be.0
 
@@ -312,7 +314,7 @@ end
 
 # => []
 proc.execute_SWAPp
-    push.OFFERED_ASSET_WORD exec.note::get_assets assert.err=ERR_SWAP_WRONG_NUMBER_OF_ASSETS drop
+    push.OFFERED_ASSET_WORD exec.active_note::get_assets assert.err=ERR_SWAP_WRONG_NUMBER_OF_ASSETS drop
     # => []
 
     mem_loadw_be.OFFERED_ASSET_WORD
@@ -332,7 +334,7 @@ proc.execute_SWAPp
     # => []
 
     # store note inputs into memory starting at address 0
-    push.0 exec.note::get_inputs
+    push.0 exec.active_note::get_inputs
     # => [num_inputs, inputs_ptr]
 
     # make sure the number of inputs is N
@@ -366,7 +368,7 @@ proc.execute_SWAPp
         mem_load.TOKEN_B_ID_SUFFIX mem_load.TOKEN_B_ID_PREFIX
         # => [token_b_id_prefix, token_b_id_suffix]
 
-        call.account::get_balance
+        call.active_account::get_balance
         # => [token_b_AMT_IN]
 
         # token_b_AMT_IN must not be 0
@@ -428,7 +430,7 @@ proc.execute_SWAPp
     padw mem_loadw_be.SWAPP_COUNT_INPUT
     # => [SWAP_COUNT, P2ID_SCRIPT_HASH]
 
-    exec.note::get_serial_number
+    exec.active_note::get_serial_number
     # => [SWAP_SERIAL_NUM, SWAP_COUNT, P2ID_SCRIPT_HASH]
 
     exec.get_p2id_serial_num
@@ -450,7 +452,7 @@ proc.execute_SWAPp
     # => [tag, aux, public_note, execution_hint_always, P2ID_RECIPIENT]
     # => [tag, aux, note_type, execution_hint, RECIPIENT]
 
-    call.tx::create_note
+    call.output_note::create
     # => [note_idx, pad(15) ...]
 
     mem_load.AMT_TOKENS_B_IN
@@ -497,13 +499,13 @@ proc.execute_SWAPp
         exec.rpo::hash_memory
         # => [INPUTS_HASH]
 
-        exec.note::get_script_root
+        exec.active_note::get_script_root
         # => [SCRIPT_HASH, INPUTS_HASH]
 
         exec.get_new_swap_serial_num
         # => [SERIAL_NUM, SCRIPT_HASH, INPUTS_HASH]
 
-        exec.tx::build_recipient_hash
+        exec.note::build_recipient_hash
         # => [RECIPIENT_SWAPP]
 
         push.EXECUTION_HINT_ALWAYS
@@ -534,7 +536,7 @@ proc.execute_SWAPp
         # => [tag, aux, note_type, execution_hint, RECIPIENT]
 
         # SWAPp' creation
-        call.tx::create_note
+        call.output_note::create
         # => [note_idx, pad(15) ...]
 
         padw

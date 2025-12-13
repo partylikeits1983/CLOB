@@ -1,6 +1,6 @@
+use rand::rngs::StdRng;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
-use rand::rngs::StdRng;
 
 use miden_client::{
     account::Account,
@@ -60,14 +60,20 @@ pub async fn get_swapp_note(
 }
 
 // Helper to instantiate Client
-pub async fn instantiate_client(endpoint: Endpoint) -> Result<Client<FilesystemKeyStore<StdRng>>, ClientError> {
+pub async fn instantiate_client(
+    endpoint: Endpoint,
+) -> Result<Client<FilesystemKeyStore<StdRng>>, ClientError> {
+    use miden_client_sqlite_store::ClientBuilderSqliteExt;
+
     let timeout_ms = 10_000;
     let rpc_api = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
     let keystore_path = std::path::PathBuf::from("./keystore");
     let keystore = Arc::new(FilesystemKeyStore::<StdRng>::new(keystore_path).unwrap());
+    let store_path = std::path::PathBuf::from("./store.sqlite3");
 
     let client = ClientBuilder::new()
         .rpc(rpc_api.clone())
+        .sqlite_store(store_path)
         .authenticator(keystore.clone())
         .in_debug_mode(true.into())
         .build()

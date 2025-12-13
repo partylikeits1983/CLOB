@@ -8,7 +8,7 @@ use miden_client::{
         build_swap_tag, Note, NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata,
         NoteRecipient, NoteTag, NoteType,
     },
-    Felt, Word, ScriptBuilder,
+    Felt, ScriptBuilder, Word,
 };
 
 use miden_objects::{Hasher, NoteError};
@@ -29,7 +29,9 @@ pub fn create_partial_swap_note(
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
 
-    let note_script = ScriptBuilder::new(true).compile_note_script(note_code).unwrap();
+    let note_script = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
     let note_type = NoteType::Public;
 
     let requested_asset_word: Word = requested_asset.into();
@@ -96,7 +98,9 @@ pub fn create_partial_swap_note_cancellable(
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
 
-    let note_script = ScriptBuilder::new(true).compile_note_script(note_code).unwrap();
+    let note_script = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
     let note_type = NoteType::Public;
 
     let requested_asset_word: Word = requested_asset.into();

@@ -31,7 +31,8 @@ fn p2id_script_multiple_assets() {
         NoteType::Public,
         Felt::new(0),
         [Felt::new(1), Felt::new(2), Felt::new(3), Felt::new(4)],
-    ).unwrap();
+    )
+    .unwrap();
 
     println!("p2id script hash: {:?}", note.script().root());
 }

@@ -5,8 +5,8 @@ use miden_client::{
     asset::Asset,
     crypto::FeltRng,
     note::{
-        Note, NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata, NoteRecipient,
-        NoteTag, NoteType,
+        Note, NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata, NoteRecipient, NoteTag,
+        NoteType,
     },
     Felt, ScriptBuilder,
 };
@@ -29,7 +29,9 @@ pub fn create_p2id_note(
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
 
-    let note_script = ScriptBuilder::new(true).compile_note_script(note_code).unwrap();
+    let note_script = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
 
     let inputs = NoteInputs::new(vec![target.suffix(), target.prefix().into()])?;
     let tag = NoteTag::from_account_id(target);
@@ -65,7 +67,9 @@ pub fn create_option_contract_note<R: FeltRng>(
 
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
-    let note_script = ScriptBuilder::new(true).compile_note_script(note_code).unwrap();
+    let note_script = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
     let note_type = NoteType::Public;
 
     let payback_serial_num = rng.draw_word();
@@ -120,4 +124,3 @@ pub fn create_option_contract_note<R: FeltRng>(
 
     Ok((note, p2id_note))
 }
-

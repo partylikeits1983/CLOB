@@ -21,9 +21,9 @@ use clob_tools::{
 async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
     delete_keystore_and_store().await;
 
-    let endpoint = Endpoint::localhost();
+    let endpoint = Endpoint::testnet();
     let mut client = instantiate_client(endpoint).await?;
-    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+    let keystore = std::sync::Arc::new(FilesystemKeyStore::new("./keystore".into()).unwrap());
 
     let sync_summary = client.sync_state().await.unwrap();
     println!("Latest block: {}", sync_summary.block_num);
@@ -38,7 +38,7 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
         vec![100, 100], // For account[0] => matcher
     ];
     let (accounts, faucets) =
-        setup_accounts_and_faucets(&mut client, keystore, 3, 2, balances).await?;
+        setup_accounts_and_faucets(&mut client, &keystore, 3, 2, balances).await?;
 
     // rename for clarity
     let alice_account = accounts[0].clone();
@@ -52,7 +52,7 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
     // -------------------------------------------------------------------------
     let swap_note_1_asset_a = FungibleAsset::new(faucet_a.id(), 100).unwrap();
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
-    let swap_note_1_serial_num = client.rng().draw_word();
+    let swap_note_1_serial_num = *client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
         alice_account.id(),         // creator of the order
         alice_account.id(),         // last account to "fill the order"
@@ -65,7 +65,7 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
 
     let swap_note_2_asset_a = FungibleAsset::new(faucet_a.id(), 50).unwrap();
     let swap_note_2_asset_b = FungibleAsset::new(faucet_b.id(), 50).unwrap();
-    let swap_note_2_serial_num = client.rng().draw_word();
+    let swap_note_2_serial_num = *client.rng().draw_word();
     let swap_note_2 = create_partial_swap_note(
         bob_account.id(),
         bob_account.id(),
@@ -80,26 +80,24 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
         .own_output_notes(vec![OutputNote::Full(swap_note_1.clone())])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(alice_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(alice_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     let note_creation_request = TransactionRequestBuilder::new()
         .own_output_notes(vec![OutputNote::Full(swap_note_2.clone())])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(bob_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(bob_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     // -------------------------------------------------------------------------
     // STEP 3: Computing output notes if SWAP notes are matched
     // -------------------------------------------------------------------------
-    let p2id_serial_num_1 = get_p2id_serial_num(swap_note_1.serial_num(), 1);
+    let p2id_serial_num_1 = get_p2id_serial_num(swap_note_1.serial_num().into(), 1);
     let p2id_1 = create_p2id_note(
         matcher_account.id(),             // sender
         alice_account.id(),               // account id to receive the asset
@@ -110,7 +108,7 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
     )
     .unwrap();
 
-    let p2id_serial_num_2 = get_p2id_serial_num(swap_note_2.serial_num(), 1);
+    let p2id_serial_num_2 = get_p2id_serial_num(swap_note_2.serial_num().into(), 1);
     let p2id_2 = create_p2id_note(
         matcher_account.id(),
         bob_account.id(),
@@ -216,20 +214,18 @@ async fn fill_counter_party_swap_notes_manual() -> Result<(), ClientError> {
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args)),
-            (swap_note_2.id(), Some(swap_data.note2_args)),
+            (swap_note_1.id(), Some(swap_data.note1_args.into())),
+            (swap_note_2.id(), Some(swap_data.note2_args.into())),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
         .build()
         .unwrap();
 
-    let tx_result = client
-        .new_transaction(matcher_account.id(), consume_req)
+    let _tx_id = client
+        .submit_new_transaction(matcher_account.id(), consume_req)
         .await
         .unwrap();
-
-    let _ = client.submit_transaction(tx_result).await;
 
     client.sync_state().await.unwrap();
 
@@ -254,9 +250,9 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
 {
     delete_keystore_and_store().await;
 
-    let endpoint = Endpoint::localhost();
+    let endpoint = Endpoint::testnet();
     let mut client = instantiate_client(endpoint).await?;
-    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+    let keystore = std::sync::Arc::new(FilesystemKeyStore::new("./keystore".into()).unwrap());
 
     let sync_summary = client.sync_state().await.unwrap();
     println!("Latest block: {}", sync_summary.block_num);
@@ -271,7 +267,7 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
         vec![100_000_000, 100_000_000], // For account[0] => matcher
     ];
     let (accounts, faucets) =
-        setup_accounts_and_faucets(&mut client, keystore, 3, 2, balances).await?;
+        setup_accounts_and_faucets(&mut client, &keystore, 3, 2, balances).await?;
 
     // rename for clarity
     let alice_account = accounts[0].clone();
@@ -285,7 +281,7 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
     // -------------------------------------------------------------------------
     let swap_note_1_asset_a = FungibleAsset::new(faucet_a.id(), 600).unwrap();
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 1455600).unwrap();
-    let swap_note_1_serial_num = client.rng().draw_word();
+    let swap_note_1_serial_num = *client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
         alice_account.id(),         // creator of the order
         alice_account.id(),         // last account to "fill the order"
@@ -298,7 +294,7 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
 
     let swap_note_2_asset_a = FungibleAsset::new(faucet_a.id(), 71).unwrap();
     let swap_note_2_asset_b = FungibleAsset::new(faucet_b.id(), 173737).unwrap();
-    let swap_note_2_serial_num = client.rng().draw_word();
+    let swap_note_2_serial_num = *client.rng().draw_word();
     let swap_note_2 = create_partial_swap_note(
         bob_account.id(),
         bob_account.id(),
@@ -313,21 +309,19 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
         .own_output_notes(vec![OutputNote::Full(swap_note_1.clone())])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(alice_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(alice_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     let note_creation_request = TransactionRequestBuilder::new()
         .own_output_notes(vec![OutputNote::Full(swap_note_2.clone())])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(bob_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(bob_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     println!("waiting");
     wait_for_note(&mut client, &matcher_account, &swap_note_1)
@@ -371,20 +365,18 @@ async fn partial_fill_counter_party_swap_notes_with_matching_algorithm() -> Resu
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args)),
-            (swap_note_2.id(), Some(swap_data.note2_args)),
+            (swap_note_1.id(), Some(swap_data.note1_args.into())),
+            (swap_note_2.id(), Some(swap_data.note2_args.into())),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
         .build()
         .unwrap();
 
-    let tx_result = client
-        .new_transaction(matcher_account.id(), consume_req)
+    let _tx_id = client
+        .submit_new_transaction(matcher_account.id(), consume_req)
         .await
         .unwrap();
-
-    let _ = client.submit_transaction(tx_result).await;
 
     client.sync_state().await.unwrap();
 
@@ -410,7 +402,7 @@ async fn fill_counter_party_swap_notes_complete_fill_algorithm() -> Result<(), C
 
     let endpoint = Endpoint::localhost();
     let mut client = instantiate_client(endpoint).await?;
-    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+    let keystore = std::sync::Arc::new(FilesystemKeyStore::new("./keystore".into()).unwrap());
 
     let sync_summary = client.sync_state().await.unwrap();
     println!("Latest block: {}", sync_summary.block_num);
@@ -425,7 +417,7 @@ async fn fill_counter_party_swap_notes_complete_fill_algorithm() -> Result<(), C
         vec![100, 100], // For account[0] => matcher
     ];
     let (accounts, faucets) =
-        setup_accounts_and_faucets(&mut client, keystore, 3, 2, balances).await?;
+        setup_accounts_and_faucets(&mut client, &keystore, 3, 2, balances).await?;
 
     // rename for clarity
     let alice_account = accounts[0].clone();
@@ -439,7 +431,7 @@ async fn fill_counter_party_swap_notes_complete_fill_algorithm() -> Result<(), C
     // -------------------------------------------------------------------------
     let swap_note_1_asset_a = FungibleAsset::new(faucet_a.id(), 100).unwrap();
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
-    let swap_note_1_serial_num = client.rng().draw_word();
+    let swap_note_1_serial_num = *client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
         alice_account.id(),         // creator of the order
         alice_account.id(),         // last account to "fill the order"
@@ -452,7 +444,7 @@ async fn fill_counter_party_swap_notes_complete_fill_algorithm() -> Result<(), C
 
     let swap_note_2_asset_a = FungibleAsset::new(faucet_a.id(), 100).unwrap();
     let swap_note_2_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
-    let swap_note_2_serial_num = client.rng().draw_word();
+    let swap_note_2_serial_num = *client.rng().draw_word();
     let swap_note_2 = create_partial_swap_note(
         bob_account.id(),
         bob_account.id(),
@@ -467,21 +459,19 @@ async fn fill_counter_party_swap_notes_complete_fill_algorithm() -> Result<(), C
         .own_output_notes(vec![OutputNote::Full(swap_note_1.clone())])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(alice_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(alice_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     let note_creation_request = TransactionRequestBuilder::new()
         .own_output_notes(vec![OutputNote::Full(swap_note_2.clone())])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(bob_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(bob_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     println!("waiting");
     wait_for_note(&mut client, &matcher_account, &swap_note_1)
@@ -526,20 +516,18 @@ async fn fill_counter_party_swap_notes_complete_fill_algorithm() -> Result<(), C
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_note_1.id(), Some(swap_data.note1_args)),
-            (swap_note_2.id(), Some(swap_data.note2_args)),
+            (swap_note_1.id(), Some(swap_data.note1_args.into())),
+            (swap_note_2.id(), Some(swap_data.note2_args.into())),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
         .build()
         .unwrap();
 
-    let tx_result = client
-        .new_transaction(matcher_account.id(), consume_req)
+    let _tx_id = client
+        .submit_new_transaction(matcher_account.id(), consume_req)
         .await
         .unwrap();
-
-    let _ = client.submit_transaction(tx_result).await;
 
     client.sync_state().await.unwrap();
 
@@ -565,7 +553,7 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
 
     let endpoint = Endpoint::localhost();
     let mut client = instantiate_client(endpoint).await?;
-    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+    let keystore = std::sync::Arc::new(FilesystemKeyStore::new("./keystore".into()).unwrap());
 
     let sync_summary = client.sync_state().await.unwrap();
     println!("Latest block: {}", sync_summary.block_num);
@@ -580,7 +568,7 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
         vec![100, 100], // For account[0] => matcher
     ];
     let (accounts, faucets) =
-        setup_accounts_and_faucets(&mut client, keystore, 3, 2, balances).await?;
+        setup_accounts_and_faucets(&mut client, &keystore, 3, 2, balances).await?;
 
     // rename for clarity
     let alice_account = accounts[0].clone();
@@ -594,7 +582,7 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
     // -------------------------------------------------------------------------
     let swap_note_1_asset_a = FungibleAsset::new(faucet_a.id(), 100).unwrap();
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
-    let swap_note_1_serial_num = client.rng().draw_word();
+    let swap_note_1_serial_num = *client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
         alice_account.id(),         // creator of the order
         alice_account.id(),         // last account to "fill the order"
@@ -607,7 +595,7 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
 
     let swap_note_2_asset_a = FungibleAsset::new(faucet_a.id(), 50).unwrap();
     let swap_note_2_asset_b = FungibleAsset::new(faucet_b.id(), 50).unwrap();
-    let swap_note_2_serial_num = client.rng().draw_word();
+    let swap_note_2_serial_num = *client.rng().draw_word();
     let swap_note_2 = create_partial_swap_note(
         bob_account.id(),
         bob_account.id(),
@@ -620,7 +608,7 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
 
     let swap_note_3_asset_a = FungibleAsset::new(faucet_a.id(), 25).unwrap();
     let swap_note_3_asset_b = FungibleAsset::new(faucet_b.id(), 25).unwrap();
-    let swap_note_3_serial_num = client.rng().draw_word();
+    let swap_note_3_serial_num = *client.rng().draw_word();
     let swap_note_3 = create_partial_swap_note(
         bob_account.id(),
         bob_account.id(),
@@ -635,11 +623,10 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
         .own_output_notes(vec![OutputNote::Full(swap_note_1.clone())])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(alice_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(alice_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     let note_creation_request = TransactionRequestBuilder::new()
         .own_output_notes(vec![
@@ -648,11 +635,10 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
         ])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(bob_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(bob_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     // println!("waiting 10 secs");
 
@@ -700,20 +686,18 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
 
     let consume_req = TransactionRequestBuilder::new()
         .unauthenticated_input_notes([
-            (swap_note_1, Some(swap_data.note1_args)),
-            (swap_note_2, Some(swap_data.note2_args)),
+            (swap_note_1, Some(swap_data.note1_args.into())),
+            (swap_note_2, Some(swap_data.note2_args.into())),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
         .build()
         .unwrap();
 
-    let tx_result = client
-        .new_transaction(matcher_account.id(), consume_req)
+    let _tx_id = client
+        .submit_new_transaction(matcher_account.id(), consume_req)
         .await
         .unwrap();
-
-    let _ = client.submit_transaction(tx_result).await;
     client.sync_state().await.unwrap();
 
     println!("first fill success");
@@ -765,20 +749,18 @@ async fn fill_partial_filled_swap_note_test() -> Result<(), ClientError> {
 
     let consume_req = TransactionRequestBuilder::new()
         .unauthenticated_input_notes([
-            (swap_data_1.swap_note_1, Some(swap_data_1.note1_args)),
-            (swap_data_1.swap_note_2, Some(swap_data_1.note2_args)),
+            (swap_data_1.swap_note_1, Some(swap_data_1.note1_args.into())),
+            (swap_data_1.swap_note_2, Some(swap_data_1.note2_args.into())),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
         .build()
         .unwrap();
 
-    let tx_result = client
-        .new_transaction(matcher_account.id(), consume_req)
+    let _tx_id = client
+        .submit_new_transaction(matcher_account.id(), consume_req)
         .await
         .unwrap();
-
-    let _ = client.submit_transaction(tx_result).await;
 
     client.sync_state().await.unwrap();
 
@@ -804,7 +786,7 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
 
     let endpoint = Endpoint::localhost();
     let mut client = instantiate_client(endpoint).await?;
-    let keystore = FilesystemKeyStore::new("./keystore".into()).unwrap();
+    let keystore = std::sync::Arc::new(FilesystemKeyStore::new("./keystore".into()).unwrap());
 
     let sync_summary = client.sync_state().await.unwrap();
     println!("Latest block: {}", sync_summary.block_num);
@@ -819,7 +801,7 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
         vec![10000, 10000], // For account[0] => matcher
     ];
     let (accounts, faucets) =
-        setup_accounts_and_faucets(&mut client, keystore, 3, 2, balances).await?;
+        setup_accounts_and_faucets(&mut client, &keystore, 3, 2, balances).await?;
 
     // rename for clarity
     let alice_account = accounts[0].clone();
@@ -833,7 +815,7 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
     // -------------------------------------------------------------------------
     let swap_note_1_asset_a = FungibleAsset::new(faucet_a.id(), 100).unwrap();
     let swap_note_1_asset_b = FungibleAsset::new(faucet_b.id(), 100).unwrap();
-    let swap_note_1_serial_num = client.rng().draw_word();
+    let swap_note_1_serial_num = *client.rng().draw_word();
     let swap_note_1 = create_partial_swap_note(
         alice_account.id(),         // creator of the order
         alice_account.id(),         // last account to "fill the order"
@@ -846,7 +828,7 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
 
     let swap_note_2_asset_a = FungibleAsset::new(faucet_a.id(), 50).unwrap();
     let swap_note_2_asset_b = FungibleAsset::new(faucet_b.id(), 50).unwrap();
-    let swap_note_2_serial_num = client.rng().draw_word();
+    let swap_note_2_serial_num = *client.rng().draw_word();
     let swap_note_2 = create_partial_swap_note(
         bob_account.id(),
         bob_account.id(),
@@ -859,7 +841,7 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
 
     let swap_note_3_asset_a = FungibleAsset::new(faucet_a.id(), 80).unwrap();
     let swap_note_3_asset_b = FungibleAsset::new(faucet_b.id(), 80).unwrap();
-    let swap_note_3_serial_num = client.rng().draw_word();
+    let swap_note_3_serial_num = *client.rng().draw_word();
     let swap_note_3 = create_partial_swap_note(
         alice_account.id(),         // creator of the order
         alice_account.id(),         // last account to "fill the order"
@@ -872,7 +854,7 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
 
     let swap_note_4_asset_a = FungibleAsset::new(faucet_a.id(), 30).unwrap();
     let swap_note_4_asset_b = FungibleAsset::new(faucet_b.id(), 30).unwrap();
-    let swap_note_4_serial_num = client.rng().draw_word();
+    let swap_note_4_serial_num = *client.rng().draw_word();
     let swap_note_4 = create_partial_swap_note(
         bob_account.id(),
         bob_account.id(),
@@ -891,11 +873,10 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
         ])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(alice_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(alice_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     let note_creation_request = TransactionRequestBuilder::new()
         .own_output_notes(vec![
@@ -904,11 +885,10 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
         ])
         .build()
         .unwrap();
-    let tx_result = client
-        .new_transaction(bob_account.id(), note_creation_request)
+    let _tx_id = client
+        .submit_new_transaction(bob_account.id(), note_creation_request)
         .await
         .unwrap();
-    client.submit_transaction(tx_result).await.unwrap();
 
     println!("waiting");
     wait_for_note(&mut client, &matcher_account, &swap_note_1)
@@ -974,22 +954,32 @@ async fn multi_order_fill_test() -> Result<(), ClientError> {
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([
-            (swap_data_1.swap_note_1.id(), Some(swap_data_1.note1_args)),
-            (swap_data_1.swap_note_2.id(), Some(swap_data_1.note2_args)),
-            (swap_data_2.swap_note_1.id(), Some(swap_data_2.note1_args)),
-            (swap_data_2.swap_note_2.id(), Some(swap_data_2.note2_args)),
+            (
+                swap_data_1.swap_note_1.id(),
+                Some(swap_data_1.note1_args.into()),
+            ),
+            (
+                swap_data_1.swap_note_2.id(),
+                Some(swap_data_1.note2_args.into()),
+            ),
+            (
+                swap_data_2.swap_note_1.id(),
+                Some(swap_data_2.note1_args.into()),
+            ),
+            (
+                swap_data_2.swap_note_2.id(),
+                Some(swap_data_2.note2_args.into()),
+            ),
         ])
         .expected_future_notes(expected_outputs)
         .expected_output_recipients(expected_output_recipients)
         .build()
         .unwrap();
 
-    let tx_result = client
-        .new_transaction(matcher_account.id(), consume_req)
+    let _tx_id = client
+        .submit_new_transaction(matcher_account.id(), consume_req)
         .await
         .unwrap();
-
-    let _ = client.submit_transaction(tx_result).await;
 
     client.sync_state().await.unwrap();
 

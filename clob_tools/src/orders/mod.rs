@@ -1,4 +1,3 @@
-use rand::rngs::StdRng;
 use miden_client::{
     account::AccountId,
     asset::{Asset, FungibleAsset},
@@ -9,6 +8,7 @@ use miden_client::{
     Client, Felt, Word,
 };
 use miden_objects::NoteError;
+use rand::rngs::StdRng;
 
 pub async fn create_order(
     client: &mut Client<FilesystemKeyStore<StdRng>>,
@@ -34,7 +34,10 @@ pub async fn create_order(
         .build()
         .unwrap();
 
-    let tx_id = client.submit_new_transaction(trader, note_req).await.unwrap();
+    let tx_id = client
+        .submit_new_transaction(trader, note_req)
+        .await
+        .unwrap();
     println!(
         "View transaction on MidenScan: https://testnet.midenscan.com/tx/{:?}",
         tx_id
@@ -69,7 +72,10 @@ pub async fn create_order_simple(
         .build()
         .unwrap();
 
-    let tx_id = client.submit_new_transaction(trader, note_req).await.unwrap();
+    let tx_id = client
+        .submit_new_transaction(trader, note_req)
+        .await
+        .unwrap();
     println!(
         "View transaction on MidenScan: https://testnet.midenscan.com/tx/{:?}",
         tx_id

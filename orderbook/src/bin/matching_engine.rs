@@ -375,8 +375,14 @@ async fn execute_batch_blockchain_match_simplified(
 
     for (swap_data, _, _, _, _) in matches_batch {
         // Add input notes from this match (exactly like the test)
-        input_notes.push((swap_data.swap_note_1.clone(), Some(swap_data.note1_args.into())));
-        input_notes.push((swap_data.swap_note_2.clone(), Some(swap_data.note2_args.into())));
+        input_notes.push((
+            swap_data.swap_note_1.clone(),
+            Some(swap_data.note1_args.into()),
+        ));
+        input_notes.push((
+            swap_data.swap_note_2.clone(),
+            Some(swap_data.note2_args.into()),
+        ));
 
         // Add expected output notes from this match (exactly like the test)
         expected_outputs.push((
@@ -612,8 +618,14 @@ async fn execute_blockchain_match_simplified(
     use miden_client::transaction::TransactionRequestBuilder;
     let consume_req = TransactionRequestBuilder::new()
         .unauthenticated_input_notes([
-            (swap_data.swap_note_1.clone(), Some(swap_data.note1_args.into())),
-            (swap_data.swap_note_2.clone(), Some(swap_data.note2_args.into())),
+            (
+                swap_data.swap_note_1.clone(),
+                Some(swap_data.note1_args.into()),
+            ),
+            (
+                swap_data.swap_note_2.clone(),
+                Some(swap_data.note2_args.into()),
+            ),
         ])
         .expected_future_notes(expected_outputs.clone())
         .expected_output_recipients(expected_output_recipients)

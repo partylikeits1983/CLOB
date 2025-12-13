@@ -16,8 +16,6 @@ use clob_tools::{
     delete_keystore_and_store, instantiate_client, price_to_swap_note, setup_accounts_and_faucets,
 };
 use miden_client::crypto::FeltRng;
-use rand::rngs::StdRng;
-use std::sync::Arc;
 use miden_client::{
     account::{Account, AccountId},
     keystore::FilesystemKeyStore,
@@ -25,6 +23,8 @@ use miden_client::{
     transaction::{OutputNote, TransactionRequestBuilder},
     Client,
 };
+use rand::rngs::StdRng;
+use std::sync::Arc;
 // use rand::{RngCore, rngs::StdRng};
 
 #[derive(Debug, Deserialize)]

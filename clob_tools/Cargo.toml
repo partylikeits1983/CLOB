@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 miden-client = { workspace = true }
+miden-client-sqlite-store = { workspace = true }
 miden-lib = { workspace = true }
 miden-objects = { workspace = true }
 miden-tx = { workspace = true }
