@@ -3,12 +3,13 @@ use std::{env, fs, path::PathBuf};
 use miden_client::{
     account::AccountId,
     asset::Asset,
+    auth::PublicKey,
     crypto::FeltRng,
     note::{
         Note, NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata, NoteRecipient, NoteTag,
         NoteType,
     },
-    Felt, ScriptBuilder,
+    Felt, ScriptBuilder, Word,
 };
 
 use miden_objects::NoteError;
@@ -126,8 +127,8 @@ pub fn create_option_contract_note<R: FeltRng>(
 }
 
 pub fn create_arbint_note(
+    pub_key: PublicKey,
     sender: AccountId,
-    target: AccountId,
     assets: Vec<Asset>,
     note_type: NoteType,
     aux: Felt,
@@ -145,8 +146,15 @@ pub fn create_arbint_note(
         .compile_note_script(note_code)
         .unwrap();
 
-    let inputs = NoteInputs::new(vec![target.suffix(), target.prefix().into()])?;
-    let tag = NoteTag::from_account_id(target);
+    let pub_key_word: Word = pub_key.to_commitment().into();
+    let inputs = NoteInputs::new(vec![
+        pub_key_word[0],
+        pub_key_word[1],
+        pub_key_word[2],
+        pub_key_word[3],
+    ])?;
+    let tag =
+        NoteTag::for_public_use_case(0, 0, miden_client::note::NoteExecutionMode::Local).unwrap();
 
     let metadata = NoteMetadata::new(sender, note_type, tag, NoteExecutionHint::always(), aux)?;
     let vault = NoteAssets::new(assets)?;

@@ -1,6 +1,7 @@
 use clob_tools::create_arbint_note;
+use miden_client::crypto::rpo_falcon512::PublicKey;
 use miden_crypto::hash::rpo::Rpo256;
-use miden_objects::account::auth::{AuthSecretKey, PublicKey};
+use miden_objects::account::auth::AuthSecretKey;
 use miden_objects::{
     account::{Account, AccountId, AccountIdVersion, AccountStorageMode, AccountType},
     asset::{Asset, FungibleAsset},
@@ -31,7 +32,7 @@ async fn test_arbint_note_with_signature_flow() -> anyhow::Result<()> {
     let mut rng = ChaCha20Rng::from_seed(seed);
 
     let alice_secret_key = AuthSecretKey::new_rpo_falcon512_with_rng(&mut rng);
-    let alice_public_key = alice_secret_key.public_key();
+    let alice_public_key: miden_client::auth::PublicKey = alice_secret_key.public_key();
 
     let alice_authenticator = BasicAuthenticator::new(core::slice::from_ref(&alice_secret_key));
 
@@ -63,8 +64,8 @@ async fn test_arbint_note_with_signature_flow() -> anyhow::Result<()> {
     // Create the ARBINT note using the existing function
     // Alice is sending her assets to Bob via the ARBINT note
     let arbint_note = create_arbint_note(
+        alice_public_key.clone(),
         alice_account.id(),
-        bob_account.id(),
         vec![alice_asset_1],
         NoteType::Public,
         Felt::new(0),
@@ -90,10 +91,13 @@ async fn test_arbint_note_with_signature_flow() -> anyhow::Result<()> {
         .get_signature(alice_public_key.to_commitment(), &arbitrary_inputs)
         .await?;
 
+    // let sigmsg = alice_signature.
+
     // Create the message hash for the signature (hash of the signed value)
     println!("Alice's signature created for value: {}", signed_value);
     println!("Alice's public key: {:?}", alice_public_key.to_commitment());
     println!("Message hash: {:?}", msg);
+    println!("sig: {:?}", alice_signature.to_prepared_signature(msg));
 
     // BOB CONSUMES THE ARBINT NOTE USING ALICE'S SIGNATURE
     // --------------------------------------------------------------------------------------------
@@ -115,6 +119,16 @@ async fn test_arbint_note_with_signature_flow() -> anyhow::Result<()> {
         .build()?
         .execute()
         .await?;
+
+    let mut advstack = tx_context_execute.tx_inputs().advice_inputs().map.clone();
+
+    println!(
+        "advstack: {:?}",
+        advstack.entry(Hasher::merge(&[
+            alice_public_key.clone().to_commitment().into(),
+            msg.clone()
+        ]))
+    );
 
     // VERIFY NO OUTPUT NOTES WERE CREATED (ASSETS ADDED TO ACCOUNT)
     // --------------------------------------------------------------------------------------------

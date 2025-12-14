@@ -1,0 +1,56 @@
+use.miden::active_account
+use.miden::account_id
+use.miden::active_note
+use.std::crypto::dsa::rpo_falcon512
+
+const.AUTH_REQUEST_EVENT=event("miden::auth::request")
+
+# ERRORS
+# =================================================================================================
+
+const.ERR_ARBINT_WRONG_NUMBER_OF_INPUTS="ARBINT note expects exactly 2 note inputs"
+const.ERR_ARBINT_TARGET_ACCT_MISMATCH="ARBINT's target account address and transaction address do not match"
+
+#! Arbitrary Intent Note 
+begin
+    # => [MSG]
+
+    # store the note inputs to memory starting at address 0
+    push.0 exec.active_note::get_inputs drop drop
+    # => [MSG]
+
+    padw mem_loadw_be.0
+    # => [PK, MSG]
+
+    swapw
+    # => [MSG, PK]
+
+    dupw.1 dupw.1
+    # => [MSG, PK, MSG, PK]
+
+    hmerge
+    # => [K, MSG, PK]
+
+    adv.push_mapval
+    # => [K, MSG, PK]
+
+    dropw swapw
+    # => [PK, MSG]
+
+    # adv_push.16
+
+    push.222 debug.stack drop
+
+    # OS => [PUB_KEY, MESSAGE]
+    # AS => [SIGNATURE]
+
+    exec.rpo_falcon512::verify
+
+    # push.333 debug.stack drop
+
+    exec.active_note::add_assets_to_account
+    # => []
+
+
+    dropw dropw dropw dropw dropw dropw
+end
