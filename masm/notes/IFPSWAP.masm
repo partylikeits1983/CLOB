@@ -439,19 +439,10 @@ proc.execute_SWAPp
     mem_load.TOKEN_B_ID_PREFIX
     # => [ASSET, note_idx]
 
-    call.wallet::move_asset_to_note
+    exec.output_note::add_asset
     # => [ASSET, note_ix, pad(11)]
 
     dropw drop
-    # => []
-
-    mem_load.AMT_TOKENS_A_OUT
-    push.0
-    mem_load.TOKEN_A_ID_SUFFIX
-    mem_load.TOKEN_A_ID_PREFIX
-    # => [ASSET]
-
-    call.wallet::receive_asset
     # => []
 
     # check if partial fill
@@ -506,7 +497,7 @@ proc.execute_SWAPp
         mem_load.TOKEN_A_ID_PREFIX
         # => [ASSET, payback_tag, aux, note_type, SWAPp_RECIPIENT]
 
-        dupw call.wallet::receive_asset
+        # dupw call.wallet::receive_asset
         # => [ASSET, payback_tag, aux, note_type, SWAPp_RECIPIENT]
 
         mem_storew_be.NEW_ASSET_A dropw
@@ -523,7 +514,7 @@ proc.execute_SWAPp
         mem_loadw_be.NEW_ASSET_A
         # => [ASSET, note_idx, pad(15) ...]
 
-        call.wallet::move_asset_to_note
+        exec.output_note::add_asset
         # => [ASSET, note_idx, pad(11)]
 
         dropw drop
@@ -550,5 +541,4 @@ begin
         exec.execute_SWAPp
     end
     # => [pad(16)]
-
 end

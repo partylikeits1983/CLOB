@@ -1,17 +1,18 @@
 use clob_tools::create_arbint_note;
-use miden_client::crypto::rpo_falcon512::PublicKey;
-use miden_crypto::hash::rpo::Rpo256;
+// use miden_client::crypto::rpo_falcon512::PublicKey;
+// use miden_crypto::hash::rpo::Rpo256;
 use miden_objects::account::auth::AuthSecretKey;
 use miden_objects::{
-    account::{Account, AccountId, AccountIdVersion, AccountStorageMode, AccountType},
+    account::{AccountId, AccountIdVersion, AccountStorageMode, AccountType},
     asset::{Asset, FungibleAsset},
     note::NoteType,
     transaction::OutputNote,
     Felt, Hasher, Word,
 };
-use miden_testing::{AccountState, Auth, MockChain};
+use miden_testing::{Auth, MockChain};
 use miden_tx::auth::{BasicAuthenticator, SigningInputs, TransactionAuthenticator};
-use rand::Rng;
+// use miden_tx::TransactionExecutorError;
+// use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
@@ -33,7 +34,6 @@ async fn test_arbint_note_with_signature_flow() -> anyhow::Result<()> {
 
     let alice_secret_key = AuthSecretKey::new_rpo_falcon512_with_rng(&mut rng);
     let alice_public_key: miden_client::auth::PublicKey = alice_secret_key.public_key();
-
     let alice_authenticator = BasicAuthenticator::new(core::slice::from_ref(&alice_secret_key));
 
     let faucet_owner_account_id = AccountId::dummy(
@@ -72,8 +72,6 @@ async fn test_arbint_note_with_signature_flow() -> anyhow::Result<()> {
         [Felt::new(1), Felt::new(2), Felt::new(3), Felt::new(4)],
     )?;
 
-    println!("ARBINT script hash: {:?}", arbint_note.script().root());
-
     // Add the ARBINT note to the mock chain
     builder.add_output_note(OutputNote::Full(arbint_note.clone()));
     let mut mock_chain = builder.build()?;
@@ -85,24 +83,24 @@ async fn test_arbint_note_with_signature_flow() -> anyhow::Result<()> {
     // --------------------------------------------------------------------------------------------
     let signed_value = Felt::new(100);
     let arbitrary_inputs = SigningInputs::Arbitrary(vec![signed_value]);
-    let msg = arbitrary_inputs.to_commitment();
+    let msg: Word = arbitrary_inputs.to_commitment();
 
     let alice_signature = alice_authenticator
         .get_signature(alice_public_key.to_commitment(), &arbitrary_inputs)
         .await?;
 
-    // let sigmsg = alice_signature.
+    let is_valid = alice_public_key.verify(msg, alice_signature.clone());
+    println!("isvalid: {:?}", is_valid);
 
     // Create the message hash for the signature (hash of the signed value)
-    println!("Alice's signature created for value: {}", signed_value);
-    println!("Alice's public key: {:?}", alice_public_key.to_commitment());
-    println!("Message hash: {:?}", msg);
-    println!("sig: {:?}", alice_signature.to_prepared_signature(msg));
+    println!("public key: {:?}", alice_public_key.to_commitment());
+    println!("msg: {:?}", msg);
 
     // BOB CONSUMES THE ARBINT NOTE USING ALICE'S SIGNATURE
     // --------------------------------------------------------------------------------------------
 
-    println!("Step 3: Bob consumes ARBINT note using Alice's signature");
+    println!("_______________________________________________________\n");
+    println!("Step 3: CONSUMING ARBINT note using Alice's signature");
 
     // Create note args with the message hash
     let mut note_args = std::collections::BTreeMap::new();

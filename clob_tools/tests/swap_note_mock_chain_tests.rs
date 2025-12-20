@@ -1,12 +1,17 @@
-use clob_tools::{create_partial_swap_note, try_match_swapp_notes};
+use clob_tools::{create_partial_swap_note, create_inflight_partial_swap, try_match_swapp_notes};
 use miden_client::{
+    account::{AccountId, AccountStorageMode, AccountType},
     asset::{Asset, FungibleAsset},
     note::NoteType,
     testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1,
+    transaction::OutputNote,
     Felt, Word,
 };
 
-use miden_objects::testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2;
+use miden_objects::{
+    account::AccountIdVersion, testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2,
+};
+use miden_testing::{Auth, MockChain};
 
 #[test]
 fn p2id_script_multiple_assets() {
@@ -37,20 +42,36 @@ fn p2id_script_multiple_assets() {
 
 #[tokio::test]
 async fn swapp_match_mock_chain() -> anyhow::Result<()> {
+    let mut builder = MockChain::builder();
+
+    let faucet_owner_account_id = AccountId::dummy(
+        [1; 15],
+        AccountIdVersion::Version0,
+        AccountType::RegularAccountImmutableCode,
+        AccountStorageMode::Private,
+    );
+
+    let faucet_1 =
+        builder.add_existing_network_faucet("TOKA", 1000, faucet_owner_account_id, Some(100_000_000))?;
+
+    let faucet_2 =
+        builder.add_existing_network_faucet("TOKB", 1000, faucet_owner_account_id, Some(100_000_000))?;
+
+    // matcher asset amounts
+    let matcher_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 1000).unwrap().into();
+    let matcher_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 1000).unwrap().into();
+
+    // PSWAP NOTE 1
+    let swap_note_1_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 100).unwrap().into();
+    let swap_note_1_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 100).unwrap().into();
+
+    let matcher_account = builder
+        .add_existing_wallet_with_assets(Auth::BasicAuth, vec![matcher_asset_a, matcher_asset_b])?;
+
     // Create account IDs
     let alice_account_id = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap();
     let bob_account_id = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2.try_into().unwrap();
-    let matcher_account_id = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap();
-
-    // PSWAP NOTE 1
-    let swap_note_1_asset_a: Asset =
-        FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap(), 100)
-            .unwrap()
-            .into();
-    let swap_note_1_asset_b: Asset =
-        FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap(), 100)
-            .unwrap()
-            .into();
+    let matcher_account_id = matcher_account.id();
 
     let swap_note_1 = create_partial_swap_note(
         alice_account_id,           // creator of the order
@@ -63,14 +84,8 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
     .unwrap();
 
     // PSWAP NOTE 2
-    let swap_note_2_asset_a: Asset =
-        FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap(), 100)
-            .unwrap()
-            .into();
-    let swap_note_2_asset_b: Asset =
-        FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap(), 100)
-            .unwrap()
-            .into();
+    let swap_note_2_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 100).unwrap().into();
+    let swap_note_2_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 100).unwrap().into();
 
     let swap_note_2 = create_partial_swap_note(
         bob_account_id,             // creator of the order
@@ -82,14 +97,135 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
     )
     .unwrap();
 
+    builder.add_output_note(OutputNote::Full(swap_note_1.clone()));
+    builder.add_output_note(OutputNote::Full(swap_note_2.clone()));
+
+    let mock_chain = builder.build()?;
+
     let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher_account_id)
         .unwrap()
         .expect("orders should cross");
 
-    println!("Match successful - test passed!");
+    let mut note_args = std::collections::BTreeMap::new();
+    note_args.insert(swap_data.swap_note_1.id(), swap_data.note1_args.into());
+    note_args.insert(swap_data.swap_note_2.id(), swap_data.note2_args.into());
 
+    let tx_context_execute = mock_chain
+        .build_tx_context(
+            matcher_account.id(),
+            &[swap_data.swap_note_1.id(), swap_data.swap_note_2.id()],
+            &[],
+        )?
+        .extend_note_args(note_args)
+        .extend_expected_output_notes(vec![
+            // OutputNote::Full(swap_data.leftover_swapp_note.unwrap()),
+            OutputNote::Full(swap_data.p2id_from_1_to_2),
+            OutputNote::Full(swap_data.p2id_from_2_to_1),
+        ])
+        .build()?
+        .execute()
+        .await?;
+
+    let status = tx_context_execute.account_delta();
+    println!("status: {:?}", status);
+
+    println!("cycles: {:?}", tx_context_execute.measurements().note_execution);
     Ok(())
 }
+
+#[tokio::test]
+async fn in_flight_pswap_mockchain() -> anyhow::Result<()> {
+    let mut builder = MockChain::builder();
+
+    let faucet_owner_account_id = AccountId::dummy(
+        [1; 15],
+        AccountIdVersion::Version0,
+        AccountType::RegularAccountImmutableCode,
+        AccountStorageMode::Private,
+    );
+
+    let faucet_1 =
+        builder.add_existing_network_faucet("TOKA", 1000, faucet_owner_account_id, Some(100_000_000))?;
+
+    let faucet_2 =
+        builder.add_existing_network_faucet("TOKB", 1000, faucet_owner_account_id, Some(100_000_000))?;
+
+    // matcher asset amounts
+    let matcher_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 1000).unwrap().into();
+    let matcher_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 1000).unwrap().into();
+
+    // PSWAP NOTE 1
+    let swap_note_1_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 100).unwrap().into();
+    let swap_note_1_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 100).unwrap().into();
+
+    let matcher_account = builder
+        .add_existing_wallet_with_assets(Auth::BasicAuth, vec![matcher_asset_a, matcher_asset_b])?;
+
+    // Create account IDs
+    let alice_account_id = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1.try_into().unwrap();
+    let bob_account_id = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2.try_into().unwrap();
+    let matcher_account_id = matcher_account.id();
+
+    let swap_note_1 = create_inflight_partial_swap(
+        alice_account_id,           // creator of the order
+        alice_account_id,           // last account to "fill the order"
+        swap_note_1_asset_a.into(), // offered asset (selling)
+        swap_note_1_asset_b.into(), // requested asset (buying)
+        *Word::default(),           // serial number of the order
+        0,                          // fill number (0 means hasn't been filled)
+    )
+    .unwrap();
+
+    // PSWAP NOTE 2
+    let swap_note_2_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 100).unwrap().into();
+    let swap_note_2_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 100).unwrap().into();
+
+    let swap_note_2 = create_inflight_partial_swap(
+        bob_account_id,             // creator of the order
+        bob_account_id,             // last account to "fill the order"
+        swap_note_2_asset_b.into(), // offered asset (selling)
+        swap_note_2_asset_a.into(), // requested asset (buying)
+        *Word::default(),           // serial number of the order
+        0,                          // fill number (0 means hasn't been filled)
+    )
+    .unwrap();
+
+    builder.add_output_note(OutputNote::Full(swap_note_1.clone()));
+    builder.add_output_note(OutputNote::Full(swap_note_2.clone()));
+
+    let mock_chain = builder.build()?;
+
+    let swap_data = try_match_swapp_notes(&swap_note_1, &swap_note_2, matcher_account_id)
+        .unwrap()
+        .expect("orders should cross");
+
+    let mut note_args = std::collections::BTreeMap::new();
+    note_args.insert(swap_data.swap_note_1.id(), swap_data.note1_args.into());
+    note_args.insert(swap_data.swap_note_2.id(), swap_data.note2_args.into());
+
+    let tx_context_execute = mock_chain
+        .build_tx_context(
+            matcher_account.id(),
+            &[swap_data.swap_note_1.id(), swap_data.swap_note_2.id()],
+            &[],
+        )?
+        .extend_note_args(note_args)
+        .extend_expected_output_notes(vec![
+            // OutputNote::Full(swap_data.leftover_swapp_note.unwrap()),
+            OutputNote::Full(swap_data.p2id_from_1_to_2),
+            OutputNote::Full(swap_data.p2id_from_2_to_1),
+        ])
+        .build()?
+        .execute()
+        .await?;
+
+    let status = tx_context_execute.account_delta();
+    println!("status: {:?}", status);
+
+    println!("cycles: {:?}", tx_context_execute.measurements().note_execution);
+    Ok(())
+}
+
 
 #[tokio::test]
 async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {

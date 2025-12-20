@@ -38,7 +38,65 @@ pub fn create_partial_swap_note(
     let swapp_tag = build_swap_tag(note_type, &offered_asset, &requested_asset)?;
     let p2id_tag = NoteTag::from_account_id(creator);
 
-    println!("HERE: {:?}", requested_asset_word);
+    let inputs = NoteInputs::new(vec![
+        requested_asset_word[0],
+        requested_asset_word[1],
+        requested_asset_word[2],
+        requested_asset_word[3],
+        swapp_tag.into(),
+        p2id_tag.into(),
+        Felt::new(0),
+        Felt::new(0),
+        Felt::new(swap_count),
+        Felt::new(0),
+        Felt::new(0),
+        Felt::new(0),
+        creator.prefix().into(),
+        creator.suffix().into(),
+    ])?;
+
+    let aux = Felt::new(0);
+
+    // build the outgoing note
+    let metadata = NoteMetadata::new(
+        last_consumer,
+        note_type,
+        swapp_tag,
+        NoteExecutionHint::always(),
+        aux,
+    )?;
+
+    let assets = NoteAssets::new(vec![offered_asset])?;
+    let recipient = NoteRecipient::new(swap_serial_num.into(), note_script.clone(), inputs.clone());
+    let note = Note::new(assets.clone(), metadata, recipient.clone());
+
+    Ok(note)
+}
+
+pub fn create_inflight_partial_swap(
+    creator: AccountId,
+    last_consumer: AccountId,
+    offered_asset: Asset,
+    requested_asset: Asset,
+    swap_serial_num: [Felt; 4],
+    swap_count: u64,
+) -> Result<Note, NoteError> {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let path: PathBuf = [manifest_dir, "..", "masm", "notes", "IFPSWAP.masm"]
+        .iter()
+        .collect();
+
+    let note_code = fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
+
+    let note_script = ScriptBuilder::new(true)
+        .compile_note_script(note_code)
+        .unwrap();
+    let note_type = NoteType::Public;
+
+    let requested_asset_word: Word = requested_asset.into();
+    let swapp_tag = build_swap_tag(note_type, &offered_asset, &requested_asset)?;
+    let p2id_tag = NoteTag::from_account_id(creator);
 
     let inputs = NoteInputs::new(vec![
         requested_asset_word[0],
@@ -74,6 +132,7 @@ pub fn create_partial_swap_note(
 
     Ok(note)
 }
+
 
 pub fn create_partial_swap_note_cancellable(
     creator: AccountId,
