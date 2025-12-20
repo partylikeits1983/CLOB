@@ -133,7 +133,6 @@ pub fn create_inflight_partial_swap(
     Ok(note)
 }
 
-
 pub fn create_partial_swap_note_cancellable(
     creator: AccountId,
     last_consumer: AccountId,
@@ -592,6 +591,8 @@ pub fn try_match_swapp_notes(
     println!("new_maker_offer: {:?}", new_maker_offer);
     println!("new_maker_want: {:?}", new_maker_want);
     println!("amount_out_taker: {:?}", amount_out_taker);
+
+    println!("##############################################\n\n");
 
     // Verify the match is valid
     if amount_out_maker == 0 || amount_out_taker == 0 {

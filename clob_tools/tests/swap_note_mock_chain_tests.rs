@@ -1,4 +1,4 @@
-use clob_tools::{create_partial_swap_note, create_inflight_partial_swap, try_match_swapp_notes};
+use clob_tools::{create_inflight_partial_swap, create_partial_swap_note, try_match_swapp_notes};
 use miden_client::{
     account::{AccountId, AccountStorageMode, AccountType},
     asset::{Asset, FungibleAsset},
@@ -51,21 +51,33 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
         AccountStorageMode::Private,
     );
 
-    let faucet_1 =
-        builder.add_existing_network_faucet("TOKA", 1000, faucet_owner_account_id, Some(100_000_000))?;
+    let faucet_1 = builder.add_existing_network_faucet(
+        "TOKA",
+        1_000_000_000_000,
+        faucet_owner_account_id,
+        Some(1_000_000_000_000),
+    )?;
 
-    let faucet_2 =
-        builder.add_existing_network_faucet("TOKB", 1000, faucet_owner_account_id, Some(100_000_000))?;
+    let faucet_2 = builder.add_existing_network_faucet(
+        "TOKB",
+        1_000_000_000_000,
+        faucet_owner_account_id,
+        Some(1_000_000_000_000),
+    )?;
 
     // matcher asset amounts
-    let matcher_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 1000).unwrap().into();
-    let matcher_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 1000).unwrap().into();
+    let matcher_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 1_000_000_000)
+        .unwrap()
+        .into();
+    let matcher_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 1_000_000_000)
+        .unwrap()
+        .into();
 
     // PSWAP NOTE 1
-    let swap_note_1_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 100).unwrap().into();
-    let swap_note_1_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 100).unwrap().into();
+    let swap_note_1_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 100000000).unwrap().into();
+    let swap_note_1_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 100000).unwrap().into();
 
-    let matcher_account = builder
+    let mut matcher_account = builder
         .add_existing_wallet_with_assets(Auth::BasicAuth, vec![matcher_asset_a, matcher_asset_b])?;
 
     // Create account IDs
@@ -84,8 +96,8 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
     .unwrap();
 
     // PSWAP NOTE 2
-    let swap_note_2_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 100).unwrap().into();
-    let swap_note_2_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 100).unwrap().into();
+    let swap_note_2_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 11000000).unwrap().into();
+    let swap_note_2_asset_b: Asset = FungibleAsset::new(faucet_2.id(), 80000).unwrap().into();
 
     let swap_note_2 = create_partial_swap_note(
         bob_account_id,             // creator of the order
@@ -118,7 +130,7 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
         )?
         .extend_note_args(note_args)
         .extend_expected_output_notes(vec![
-            // OutputNote::Full(swap_data.leftover_swapp_note.unwrap()),
+            OutputNote::Full(swap_data.leftover_swapp_note.unwrap()),
             OutputNote::Full(swap_data.p2id_from_1_to_2),
             OutputNote::Full(swap_data.p2id_from_2_to_1),
         ])
@@ -129,7 +141,20 @@ async fn swapp_match_mock_chain() -> anyhow::Result<()> {
     let status = tx_context_execute.account_delta();
     println!("status: {:?}", status);
 
-    println!("cycles: {:?}", tx_context_execute.measurements().note_execution);
+    println!(
+        "cycles: {:?}",
+        tx_context_execute.measurements().note_execution
+    );
+
+    let _ = matcher_account.apply_delta(tx_context_execute.account_delta());
+
+    let faucet_1_bal = matcher_account.vault().get_balance(faucet_1.id()).unwrap();
+    let faucet_2_bal = matcher_account.vault().get_balance(faucet_2.id()).unwrap();
+
+    println!("final balance:");
+    println!("faucet 1: {:?}", faucet_1_bal);
+    println!("faucet 2: {:?}", faucet_2_bal);
+
     Ok(())
 }
 
@@ -144,11 +169,19 @@ async fn in_flight_pswap_mockchain() -> anyhow::Result<()> {
         AccountStorageMode::Private,
     );
 
-    let faucet_1 =
-        builder.add_existing_network_faucet("TOKA", 1000, faucet_owner_account_id, Some(100_000_000))?;
+    let faucet_1 = builder.add_existing_network_faucet(
+        "TOKA",
+        1000,
+        faucet_owner_account_id,
+        Some(100_000_000),
+    )?;
 
-    let faucet_2 =
-        builder.add_existing_network_faucet("TOKB", 1000, faucet_owner_account_id, Some(100_000_000))?;
+    let faucet_2 = builder.add_existing_network_faucet(
+        "TOKB",
+        1000,
+        faucet_owner_account_id,
+        Some(100_000_000),
+    )?;
 
     // matcher asset amounts
     let matcher_asset_a: Asset = FungibleAsset::new(faucet_1.id(), 1000).unwrap().into();
@@ -222,10 +255,12 @@ async fn in_flight_pswap_mockchain() -> anyhow::Result<()> {
     let status = tx_context_execute.account_delta();
     println!("status: {:?}", status);
 
-    println!("cycles: {:?}", tx_context_execute.measurements().note_execution);
+    println!(
+        "cycles: {:?}",
+        tx_context_execute.measurements().note_execution
+    );
     Ok(())
 }
-
 
 #[tokio::test]
 async fn swapp_match_mock_chain_exact_error_values() -> anyhow::Result<()> {
