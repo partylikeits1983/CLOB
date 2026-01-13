@@ -69,8 +69,8 @@ pub fn create_partial_swap_note(
     )?;
 
     let assets = NoteAssets::new(vec![offered_asset])?;
-    let recipient = NoteRecipient::new(swap_serial_num.into(), note_script.clone(), inputs.clone());
-    let note = Note::new(assets.clone(), metadata, recipient.clone());
+    let recipient = NoteRecipient::new(swap_serial_num.into(), note_script, inputs);
+    let note = Note::new(assets, metadata, recipient);
 
     Ok(note)
 }
@@ -142,8 +142,8 @@ pub fn create_partial_swap_note_cancellable(
     )?;
 
     let assets = NoteAssets::new(vec![offered_asset])?;
-    let recipient = NoteRecipient::new(swap_serial_num.into(), note_script.clone(), inputs.clone());
-    let note = Note::new(assets.clone(), metadata, recipient.clone());
+    let recipient = NoteRecipient::new(swap_serial_num.into(), note_script, inputs.clone());
+    let note = Note::new(assets, metadata, recipient);
 
     println!(
         "inputlen: {:?}, NoteInputs: {:?}",
