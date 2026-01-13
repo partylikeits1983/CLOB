@@ -39,7 +39,7 @@ pub fn create_p2id_note(
     let metadata = NoteMetadata::new(sender, note_type, tag, NoteExecutionHint::always(), aux)?;
     let vault = NoteAssets::new(assets)?;
 
-    let recipient = NoteRecipient::new(serial_num.into(), note_script, inputs.clone());
+    let recipient = NoteRecipient::new(serial_num.into(), note_script, inputs);
 
     Ok(Note::new(vault, metadata, recipient))
 }
