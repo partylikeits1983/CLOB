@@ -2777,6 +2777,7 @@ dependencies = [
  "hex",
  "miden-assembly 0.18.3",
  "miden-client",
+ "miden-client-sqlite-store",
  "miden-crypto 0.17.1",
  "miden-lib",
  "miden-objects",

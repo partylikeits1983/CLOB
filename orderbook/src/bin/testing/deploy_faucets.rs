@@ -1,3 +1,4 @@
+use miden_client_sqlite_store::ClientBuilderSqliteExt;
 use miden_lib::account::auth::AuthRpoFalcon512;
 use rand::{rngs::StdRng, RngCore};
 use std::sync::Arc;
@@ -24,20 +25,24 @@ use miden_objects::{
 
 #[tokio::main]
 async fn main() -> Result<(), ClientError> {
-    // Initialize client & keystore
+    // Initialize client
     let endpoint = Endpoint::testnet();
     let timeout_ms = 10_000;
-    let rpc_api = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
+    let rpc_client = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
+
+    // Initialize keystore
     let keystore_path = std::path::PathBuf::from("./keystore");
     let keystore = Arc::new(FilesystemKeyStore::<StdRng>::new(keystore_path).unwrap());
 
+    let store_path = std::path::PathBuf::from("./store.sqlite3");
+
     let mut client = ClientBuilder::new()
-        .rpc(rpc_api)
+        .rpc(rpc_client)
+        .sqlite_store(store_path)
         .authenticator(keystore.clone())
         .in_debug_mode(true.into())
         .build()
         .await?;
-
     let sync_summary = client.sync_state().await.unwrap();
     println!("Latest block: {}", sync_summary.block_num);
 

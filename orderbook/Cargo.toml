@@ -8,6 +8,7 @@ clob_tools = { path = "../clob_tools" }
 
 # Miden dependencies
 miden-client = { workspace = true }
+miden-client-sqlite-store = { workspace = true, package = "miden-client-sqlite-store" }
 miden-lib = { workspace = true }
 miden-objects = { workspace = true }
 miden-tx = { workspace = true }

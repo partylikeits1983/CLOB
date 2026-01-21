@@ -249,8 +249,8 @@ impl MarketMaker {
             }
         }
 
+        /*
         let url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd";
-
         info!("Fetching ETH price from CoinGecko");
         let response = self.http_client.get(url).send().await?;
 
@@ -265,9 +265,11 @@ impl MarketMaker {
             }
             return Err(anyhow!("Failed to fetch price: HTTP {}", response.status()));
         }
+        */
 
-        let price_data: CoinGeckoResponse = response.json().await?;
-        let eth_price = price_data.ethereum.usd;
+        // let price_data: CoinGeckoResponse = response.json().await?;
+        // let eth_price = price_data.ethereum.usd;
+        let eth_price = 2980.0;
 
         // Update cached price and fetch time
         self.cached_eth_price = Some(eth_price);
